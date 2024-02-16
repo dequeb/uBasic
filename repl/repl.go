@@ -5,24 +5,37 @@ import (
 	"fmt"
 	"io"
 	"uBasic/lexer"
-	"uBasic/token"
+	"uBasic/parser"
+	"uBasic/sem"
 )
 
 const PROMPT = ">> "
 
 func Start(in io.Reader, out io.Writer) {
 	scanner := bufio.NewScanner(in)
-	l := lexer.New("")
 	for {
-		fmt.Printf(PROMPT)
+		fmt.Fprint(out, PROMPT)
 		scanned := scanner.Scan()
 		if !scanned {
 			return
 		}
 
-		l = lexer.New(scanner.Text())
-		for tok := l.NextToken(); tok.Kind != token.EOF; tok = l.NextToken() {
-			fmt.Printf("%+v\n", tok)
+		l := lexer.New(scanner.Text())
+		p := parser.New(l)
+		file := p.ParseFile()
+
+		if file != nil {
+			_, err := sem.Check(file)
+			if err != nil {
+				fmt.Fprintln(out, err)
+			} else {
+				fmt.Fprintln(out, file.String())
+			}
+		} else if p.Errors() != nil {
+			for _, msg := range p.Errors() {
+				fmt.Fprintln(out, msg)
+			}
 		}
+
 	}
 }

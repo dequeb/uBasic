@@ -5,5 +5,13 @@ use(
     "./lexer"
     "./repl"
     "."
+    "./ast"
+    "./ast/astutil"
+    "./types"
+    "./errors"
+    "./parser"
+    "./sem"
+    "./sem/semcheck"
+    "./sem/typecheck"
 )
 

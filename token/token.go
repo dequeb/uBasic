@@ -4,14 +4,24 @@ package token
 
 import (
 	"fmt"
-
-	"github.com/iancoleman/strcase"
+	"strings"
 )
 
 // a position is a line and column number in the input text
 type Position struct {
-	Line   int
-	Column int
+	fmt.Stringer
+	Line     int
+	Column   int
+	Absolute int
+}
+
+func (p *Position) Copy() Position {
+	return Position{Line: p.Line, Column: p.Column, Absolute: p.Absolute}
+}
+
+// String returns the string representation of the token.
+func (pos *Position) String() string {
+	return fmt.Sprintf("line: %d, col: %d", pos.Line, pos.Column)
 }
 
 // A Token represents a lexical token of the µBAISC programming language.
@@ -26,6 +36,22 @@ type Token struct {
 
 func (tok Token) String() string {
 	return fmt.Sprintf(`token.Token{Kind: token.%v, Val: %q, Pos: %v}`, tok.Kind.String(), tok.Literal, tok.Position)
+}
+
+// Equals reports whether tok and other are the same token.
+func (tok Token) Equals(other *Token) bool {
+	if other == nil {
+		return false
+	}
+	return tok.Kind == other.Kind && tok.Literal == other.Literal && tok.Position.Equals(&other.Position)
+}
+
+// Equals reports whether pos and other are the same position.
+func (pos Position) Equals(other *Position) bool {
+	if other == nil {
+		return false
+	}
+	return pos.Line == other.Line && pos.Column == other.Column && pos.Absolute == other.Absolute
 }
 
 //go:generate stringer -type Kind
@@ -45,13 +71,12 @@ const (
 	literalStart
 
 	// Identifiers and basic literals.
-	Ident       // main (also includes type names)
+	Identifier  // main (also includes type names)
 	LongLit     // 123
 	DoubleLit   // 123.45
 	StringLit   // "asdf;lkj"
 	BooleanLit  // true, false
-	DateTimeLit // 2019-01-01 00:00:00
-	NothingLit  // nothing
+	DateLit     // 2019-01-01 00:00:00
 	CurrencyLit // 55.00$
 	literalEnd
 
@@ -60,19 +85,23 @@ const (
 	// Operators and delimiters.
 	Add        // +
 	Concat     // &
-	Sub        // -
+	Minus      // -
 	Mul        // *
 	Div        // /
 	Exponent   // ^
-	Eq         // =
-	Ne         // !=
+	Eq         // ==
+	Assign     // =
+	Neq        // !=
 	Lt         // <
 	Le         // <=
 	Gt         // >
 	Ge         // >=
+	Colon      // :
+	Semicolon  // ;
 	Lparen     // (
 	Rparen     // )
 	Comma      // ,
+	Dot        // .
 	Underscore // _
 	EOL        // End of line
 
@@ -90,12 +119,15 @@ const (
 	KwConst
 	KwDim
 	KwDo
+	KwLoop
 	KwElse
 	KwEnd
+	KwEnum
 	KwErase
 	KwExit
 	KwFunction
 	KwIf
+	KwElseIf
 	KwIn
 	KwRedim
 	KwSub
@@ -108,7 +140,7 @@ const (
 	KwOn
 	KwError
 	KwResume
-	kwGoto
+	KwGoto
 	KwLong
 	KwInteger
 	KwSingle
@@ -121,78 +153,109 @@ const (
 	KwTrue
 	KwFalse
 	KwCurrency
+	KwFor
+	KwNext
+	KwStep
+	KwTo
+	KwEach
+	KwByVal
+	KwByRef
+	KwOptional
+	KwParamArray
+	KwPreserve
+	KwCall
+	KwLet
+
 	keywordEnd
 )
 
 func (kind Kind) String() string {
 	names := map[Kind]string{
-		EOF:         "EOF",
-		Illegal:     "error",
-		Comment:     "comment",
-		Ident:       "identifier",
-		LongLit:     "integer literal",
-		DoubleLit:   "floating-point literal",
-		StringLit:   "string literal",
-		DateTimeLit: "date-time literal",
-		NothingLit:  "Nothing constant",
-		BooleanLit:  "boolean literal",
-		CurrencyLit: "currency literal",
-		Add:         "+",
-		Concat:      "&",
-		Sub:         "-",
-		Mul:         "*",
-		Div:         "/",
-		IntDiv:      "Div",
-		Mod:         "Mod",
-		Exponent:    "Exp",
-		Eq:          "=",
-		Ne:          "<>",
-		Lt:          "<",
-		Le:          "<=",
-		Gt:          ">",
-		Ge:          ">=",
-		And:         "And",
-		Or:          "Or",
-		Not:         "Not ",
-		Lparen:      "(",
-		Rparen:      ")",
-		Comma:       ",",
-		Underscore:  "_",
-		KwAs:        "As",
-		KwConst:     "Const",
-		KwDim:       "Dim",
-		KwDo:        "Do",
-		KwElse:      "Else",
-		KwEnd:       "End",
-		KwErase:     "Erase",
-		KwExit:      "Exit",
-		KwFunction:  "Function",
-		KwIf:        "If",
-		KwIn:        "In",
-		KwRedim:     "Redim",
-		KwSub:       "Sub",
-		KwThen:      "Then",
-		KwUntil:     "Until",
-		KwWhile:     "While",
-		KwSelect:    "Select",
-		KwCase:      "Case",
-		KwStop:      "Stop",
-		KwOn:        "On",
-		KwError:     "Error",
-		KwResume:    "Resume",
-		kwGoto:      "Goto",
-		KwLong:      "Long",
-		KwInteger:   "Integer",
-		KwSingle:    "Single",
-		KwDouble:    "Double",
-		KwString:    "String",
-		KwBoolean:   "Boolean",
-		KwDate:      "Date",
-		KwVariant:   "Variant",
-		KwNothing:   "Nothing",
-		KwTrue:      "True",
-		KwFalse:     "False",
-		KwCurrency:  "Currency",
+		EOF:          "EOF",
+		Illegal:      "error",
+		Comment:      "comment",
+		Identifier:   "identifier",
+		LongLit:      "integer literal",
+		DoubleLit:    "floating-point literal",
+		StringLit:    "string literal",
+		DateLit:      "date-time literal",
+		BooleanLit:   "boolean literal",
+		CurrencyLit:  "currency literal",
+		Add:          "+",
+		Concat:       "&",
+		Minus:        "-",
+		Mul:          "*",
+		Div:          "/",
+		IntDiv:       "Div",
+		Mod:          "Mod",
+		Exponent:     "Exp",
+		Eq:           "==",
+		Assign:       "=",
+		Neq:          "<>",
+		Lt:           "<",
+		Le:           "<=",
+		Gt:           ">",
+		Ge:           ">=",
+		Colon:        ":",
+		Semicolon:    ";",
+		And:          "And",
+		Or:           "Or",
+		Not:          "Not ",
+		Lparen:       "(",
+		Rparen:       ")",
+		Comma:        ",",
+		Dot:          ".",
+		Underscore:   "_",
+		KwAs:         "As",
+		KwConst:      "Const",
+		KwDim:        "Dim",
+		KwDo:         "Do",
+		KwLoop:       "Loop",
+		KwElse:       "Else",
+		KwEnd:        "End",
+		KwEnum:       "Enum",
+		KwErase:      "Erase",
+		KwExit:       "Exit",
+		KwFunction:   "Function",
+		KwIf:         "If",
+		KwElseIf:     "ElseIf",
+		KwIn:         "In",
+		KwRedim:      "Redim",
+		KwSub:        "Sub",
+		KwThen:       "Then",
+		KwUntil:      "Until",
+		KwWhile:      "While",
+		KwSelect:     "Select",
+		KwCase:       "Case",
+		KwStop:       "Stop",
+		KwOn:         "On",
+		KwError:      "Error",
+		KwResume:     "Resume",
+		KwGoto:       "Goto",
+		KwLong:       "Long",
+		KwInteger:    "Integer",
+		KwSingle:     "Single",
+		KwDouble:     "Double",
+		KwString:     "String",
+		KwBoolean:    "Boolean",
+		KwDate:       "Date",
+		KwVariant:    "Variant",
+		KwNothing:    "Nothing",
+		KwTrue:       "True",
+		KwFalse:      "False",
+		KwCurrency:   "Currency",
+		KwFor:        "For",
+		KwNext:       "Next",
+		KwStep:       "Step",
+		KwTo:         "To",
+		KwEach:       "Each",
+		KwByVal:      "ByVal",
+		KwByRef:      "ByRef",
+		KwOptional:   "Optional",
+		KwParamArray: "ParamArray",
+		KwPreserve:   "Preserve",
+		KwCall:       "Call",
+		KwLet:        "Let",
 	}
 	return names[kind]
 }
@@ -208,11 +271,11 @@ func IsKeyword(str string) bool {
 }
 
 func LookupIdent(ident string) Kind {
-	ident = strcase.ToCamel(ident)
+	ident = strings.ToLower(ident)
 	if kind, ok := Keywords[ident]; ok {
 		return kind
 	}
-	return Ident
+	return Identifier
 }
 
 // IsLiteral reports whether kind is an identifier or a basic literal.
@@ -227,39 +290,60 @@ func (kind Kind) IsOperator() bool {
 
 // Keywords is the set of valid keywords in the µBASIC programming language.
 var Keywords = map[string]Kind{
-	"As":       KwAs,
-	"Const":    KwConst,
-	"Dim":      KwDim,
-	"Do":       KwDo,
-	"Else":     KwElse,
-	"End":      KwEnd,
-	"Erase":    KwErase,
-	"Exit":     KwExit,
-	"Function": KwFunction,
-	"If":       KwIf,
-	"In":       KwIn,
-	"Redim":    KwRedim,
-	"Sub":      KwSub,
-	"Then":     KwThen,
-	"Until":    KwUntil,
-	"While":    KwWhile,
-	"Select":   KwSelect,
-	"Case":     KwCase,
-	"Stop":     KwStop,
-	"On":       KwOn,
-	"Error":    KwError,
-	"Resume":   KwResume,
-	"Goto":     kwGoto,
-	"Long":     KwLong,
-	"Integer":  KwInteger,
-	"Single":   KwSingle,
-	"Double":   KwDouble,
-	"String":   KwString,
-	"Boolean":  KwBoolean,
-	"Date":     KwDate,
-	"Variant":  KwVariant,
-	"Nothing":  KwNothing,
-	"True":     KwTrue,
-	"False":    KwFalse,
-	"Currency": KwCurrency,
+	"as":         KwAs,
+	"const":      KwConst,
+	"dim":        KwDim,
+	"do":         KwDo,
+	"loop":       KwLoop,
+	"else":       KwElse,
+	"end":        KwEnd,
+	"enum":       KwEnum,
+	"erase":      KwErase,
+	"exit":       KwExit,
+	"function":   KwFunction,
+	"if":         KwIf,
+	"elseif":     KwElseIf,
+	"in":         KwIn,
+	"redim":      KwRedim,
+	"sub":        KwSub,
+	"then":       KwThen,
+	"until":      KwUntil,
+	"while":      KwWhile,
+	"select":     KwSelect,
+	"case":       KwCase,
+	"stop":       KwStop,
+	"on":         KwOn,
+	"error":      KwError,
+	"resume":     KwResume,
+	"goto":       KwGoto,
+	"long":       KwLong,
+	"integer":    KwInteger,
+	"single":     KwSingle,
+	"double":     KwDouble,
+	"string":     KwString,
+	"boolean":    KwBoolean,
+	"date":       KwDate,
+	"variant":    KwVariant,
+	"nothing":    KwNothing,
+	"true":       KwTrue,
+	"false":      KwFalse,
+	"currency":   KwCurrency,
+	"to":         KwTo,
+	"step":       KwStep,
+	"each":       KwEach,
+	"for":        KwFor,
+	"next":       KwNext,
+	"byval":      KwByVal,
+	"byref":      KwByRef,
+	"optional":   KwOptional,
+	"paramarray": KwParamArray,
+	"preserve":   KwPreserve,
+	"call":       KwCall,
+	"let":        KwLet,
+	"and":        And,
+	"or":         Or,
+	"not":        Not,
+	"div":        IntDiv,
+	"mod":        Mod,
+	"exp":        Exponent,
 }
