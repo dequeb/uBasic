@@ -1,0 +1,20 @@
+go 1.22.0
+
+use (
+	.
+	./ast
+	./ast/astutil
+	./errors
+	./eval
+	./lexer
+	./object
+	./parser
+	./repl
+	./sem
+	./sem/semcheck
+	./sem/typecheck
+	./token
+	./types
+	./eval/rtlib
+	./source
+)
