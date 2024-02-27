@@ -17,4 +17,6 @@ use (
 	./types
 	./eval/rtlib
 	./source
+	./ide
+	
 )
