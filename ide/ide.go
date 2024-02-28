@@ -13,6 +13,9 @@ import (
 	"gioui.org/widget/material"
 )
 
+type D layout.Dimensions
+type C layout.Context
+
 type Debugger struct {
 	// sourceCode  []string
 	// breakpoints []bool
@@ -20,26 +23,56 @@ type Debugger struct {
 	// callStack   []string
 }
 
+type FourPaneArea struct {
+	mainSplit  *Split
+	leftSplit  *Split
+	rightSplit *Split
+	widgets    []func(gtx layout.Context, th *material.Theme, text string, backgroundColor color.NRGBA) layout.Dimensions
+}
+
 var (
-	hsplit HSplit
-	vsplit VSplit
-	red    = color.NRGBA{R: 255, A: 255}
-	blue   = color.NRGBA{B: 255, A: 255}
+	red  = color.NRGBA{R: 255, A: 255}
+	blue = color.NRGBA{B: 255, A: 255}
 )
 
-func horizontalSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return hsplit.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "Left", red)
+func NewFourPaneArea() *FourPaneArea {
+	a := &FourPaneArea{
+		mainSplit: &Split{
+			Ratio: -0.5, direction: Vertical, Bar: 7},
+		leftSplit: &Split{
+			Ratio: 0, direction: Horizontal, Bar: 10},
+		rightSplit: &Split{
+			Ratio: 0.5, direction: Horizontal, Bar: 10},
+	}
+	a.widgets = make([]func(gtx layout.Context, th *material.Theme, text string, backgroundColor color.NRGBA) layout.Dimensions, 4)
+	a.widgets[0] = FillWithLabel
+	a.widgets[1] = FillWithLabel
+	a.widgets[2] = FillWithLabel
+	a.widgets[3] = FillWithLabel
+	return a
+}
+
+func (area *FourPaneArea) MainSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return area.mainSplit.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return area.leftSplit.LeftSplit(gtx, th)
 	}, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "Right", blue)
+		return area.rightSplit.RightSplit(gtx, th)
 	})
 }
 
-func VerticalSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return vsplit.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "up", red)
+func (split *Split) LeftSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return split.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return FillWithLabel(gtx, th, "top Left ", red)
 	}, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "Down", blue)
+		return FillWithLabel(gtx, th, "bottom left", blue)
+	})
+}
+
+func (split *Split) RightSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return split.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return FillWithLabel(gtx, th, "top right", red)
+	}, func(gtx layout.Context) layout.Dimensions {
+		return FillWithLabel(gtx, th, "bottom Right", blue)
 	})
 }
 func FillWithLabel(gtx layout.Context, th *material.Theme, text string, backgroundColor color.NRGBA) layout.Dimensions {
@@ -55,6 +88,7 @@ func ColorBox(gtx layout.Context, point image.Point, backgroundColor color.NRGBA
 
 func (d *Debugger) Run(w *app.Window) error {
 	th := material.NewTheme()
+	area := NewFourPaneArea()
 	var ops op.Ops
 	for {
 		switch e := w.NextEvent().(type) {
@@ -64,7 +98,9 @@ func (d *Debugger) Run(w *app.Window) error {
 			// This graphics context is used for managing the rendering state.
 			gtx := app.NewContext(&ops, e)
 
-			VerticalSplit(gtx, th)
+			area.MainSplit(gtx, th)
+
+			// VerticalSplit(gtx, th)
 
 			// Define an large label with an appropriate text:
 			title := material.H1(th, "Hello, Gio")

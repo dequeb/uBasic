@@ -11,33 +11,40 @@ import (
 	"gioui.org/unit"
 )
 
-type HSplit struct {
+type Direction uint8
+
+const (
+	Horizontal Direction = iota
+	Vertical
+)
+
+type Split struct {
 	// Ratio keeps the current layout.
 	// 0 is center, -1 completely to the left, 1 completely to the right.
 	Ratio float32
 	// Bar is the width for resizing the layout
 	Bar unit.Dp
 
-	drag   bool
-	dragID pointer.ID
-	dragX  float32
-}
-
-type VSplit struct {
-	// Ratio keeps the current layout.
-	// 0 is center, -1 completely to the left, 1 completely to the right.
-	Ratio float32
-	// Bar is the height for resizing the layout
-	Bar unit.Dp
-
-	drag   bool
-	dragID pointer.ID
-	dragY  float32
+	drag      bool
+	dragID    pointer.ID
+	dragValue float32
+	direction Direction
 }
 
 const defaultBarWidth = unit.Dp(10)
 
-func (s *HSplit) Layout(gtx layout.Context, left, right layout.Widget) layout.Dimensions {
+func (s *Split) Layout(gtx layout.Context, first, second layout.Widget) layout.Dimensions {
+	switch s.direction {
+	case Horizontal:
+		return s.horizontalLayout(gtx, first, second)
+	case Vertical:
+		return s.verticalLayout(gtx, first, second)
+	default:
+		return layout.Dimensions{}
+	}
+}
+
+func (s *Split) verticalLayout(gtx layout.Context, left, right layout.Widget) layout.Dimensions {
 	bar := gtx.Dp(s.Bar)
 	if bar <= 1 {
 		bar = gtx.Dp(defaultBarWidth)
@@ -78,7 +85,7 @@ func (s *HSplit) Layout(gtx layout.Context, left, right layout.Widget) layout.Di
 				}
 
 				s.dragID = e.PointerID
-				s.dragX = e.Position.X
+				s.dragValue = e.Position.X
 				s.drag = true
 
 			case pointer.Drag:
@@ -86,8 +93,8 @@ func (s *HSplit) Layout(gtx layout.Context, left, right layout.Widget) layout.Di
 					break
 				}
 
-				deltaX := e.Position.X - s.dragX
-				s.dragX = e.Position.X
+				deltaX := e.Position.X - s.dragValue
+				s.dragValue = e.Position.X
 
 				deltaRatio := deltaX * 2 / float32(gtx.Constraints.Max.X)
 				s.Ratio += deltaRatio
@@ -126,7 +133,7 @@ func (s *HSplit) Layout(gtx layout.Context, left, right layout.Widget) layout.Di
 	return layout.Dimensions{Size: gtx.Constraints.Max}
 }
 
-func (s *VSplit) Layout(gtx layout.Context, up, down layout.Widget) layout.Dimensions {
+func (s *Split) horizontalLayout(gtx layout.Context, up, down layout.Widget) layout.Dimensions {
 	bar := gtx.Dp(s.Bar)
 	if bar <= 1 {
 		bar = gtx.Dp(defaultBarWidth)
@@ -167,7 +174,7 @@ func (s *VSplit) Layout(gtx layout.Context, up, down layout.Widget) layout.Dimen
 				}
 
 				s.dragID = e.PointerID
-				s.dragY = e.Position.Y
+				s.dragValue = e.Position.Y
 				s.drag = true
 
 			case pointer.Drag:
@@ -175,8 +182,8 @@ func (s *VSplit) Layout(gtx layout.Context, up, down layout.Widget) layout.Dimen
 					break
 				}
 
-				deltaY := e.Position.Y - s.dragY
-				s.dragY = e.Position.Y
+				deltaY := e.Position.Y - s.dragValue
+				s.dragValue = e.Position.Y
 
 				deltaRatio := deltaY * 2 / float32(gtx.Constraints.Max.Y)
 				s.Ratio += deltaRatio
@@ -207,7 +214,7 @@ func (s *VSplit) Layout(gtx layout.Context, up, down layout.Widget) layout.Dimen
 	{
 		off := op.Offset(image.Pt(0, downoffset)).Push(gtx.Ops)
 		gtx := gtx
-		gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Min.X, downsize))
+		gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, downsize))
 		down(gtx)
 		off.Pop()
 	}
