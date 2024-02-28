@@ -1,15 +1,13 @@
 package ide
 
 import (
-	"image"
 	"image/color"
 
 	"gioui.org/app"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
-	"gioui.org/text"
+	"gioui.org/unit"
+	"gioui.org/widget"
 	"gioui.org/widget/material"
 )
 
@@ -24,16 +22,15 @@ type Debugger struct {
 }
 
 type FourPaneArea struct {
-	mainSplit  *Split
-	leftSplit  *Split
-	rightSplit *Split
-	widgets    []func(gtx layout.Context, th *material.Theme, text string, backgroundColor color.NRGBA) layout.Dimensions
+	mainSplit   *Split
+	leftSplit   *Split
+	rightSplit  *Split
+	sourceCode  widget.Editor
+	variables   widget.Editor
+	callStack   widget.Editor
+	terminal    widget.Editor
+	breakpoints widget.Editor
 }
-
-var (
-	red  = color.NRGBA{R: 255, A: 255}
-	blue = color.NRGBA{B: 255, A: 255}
-)
 
 func NewFourPaneArea() *FourPaneArea {
 	a := &FourPaneArea{
@@ -44,46 +41,147 @@ func NewFourPaneArea() *FourPaneArea {
 		rightSplit: &Split{
 			Ratio: 0.5, direction: Horizontal, Bar: 10},
 	}
-	a.widgets = make([]func(gtx layout.Context, th *material.Theme, text string, backgroundColor color.NRGBA) layout.Dimensions, 4)
-	a.widgets[0] = FillWithLabel
-	a.widgets[1] = FillWithLabel
-	a.widgets[2] = FillWithLabel
-	a.widgets[3] = FillWithLabel
 	return a
 }
 
 func (area *FourPaneArea) MainSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	return area.mainSplit.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return area.leftSplit.LeftSplit(gtx, th)
+		return area.LeftSplit(gtx, th)
 	}, func(gtx layout.Context) layout.Dimensions {
-		return area.rightSplit.RightSplit(gtx, th)
+		return area.RightPanes(gtx, th)
 	})
 }
 
-func (split *Split) LeftSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return split.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "top Left ", red)
+func (area *FourPaneArea) LeftSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return area.leftSplit.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return area.Variables(gtx, th)
 	}, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "bottom left", blue)
+		return area.CallStack(gtx, th)
 	})
 }
 
-func (split *Split) RightSplit(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return split.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "top right", red)
+func (area *FourPaneArea) RightPanes(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return area.rightSplit.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+
+		return area.SouceEditor(gtx, th)
 	}, func(gtx layout.Context) layout.Dimensions {
-		return FillWithLabel(gtx, th, "bottom Right", blue)
+		return area.Terminal(gtx, th)
 	})
 }
-func FillWithLabel(gtx layout.Context, th *material.Theme, text string, backgroundColor color.NRGBA) layout.Dimensions {
-	ColorBox(gtx, gtx.Constraints.Max, backgroundColor)
-	return layout.Center.Layout(gtx, material.H3(th, text).Layout)
+func (area *FourPaneArea) SouceEditor(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	ed := material.Editor(th, &area.sourceCode, "source code")
+	// Define insets ...
+	margins := layout.Inset{
+		Top:    unit.Dp(3),
+		Right:  unit.Dp(3),
+		Bottom: unit.Dp(0),
+		Left:   unit.Dp(0),
+	}
+
+	// ... and borders ...
+	border := widget.Border{
+		Color:        color.NRGBA{R: 204, G: 204, B: 204, A: 255},
+		CornerRadius: unit.Dp(3),
+		Width:        unit.Dp(2),
+	}
+	// ... before laying it out, one inside the other
+	return margins.Layout(gtx,
+		func(gtx layout.Context) layout.Dimensions {
+			return border.Layout(gtx, ed.Layout)
+		},
+	)
 }
 
-func ColorBox(gtx layout.Context, point image.Point, backgroundColor color.NRGBA) {
-	d := image.Point{X: point.X, Y: point.Y}
-	rect := clip.Rect(image.Rectangle{Max: d})
-	paint.FillShape(gtx.Ops, backgroundColor, rect.Op())
+func (area *FourPaneArea) Variables(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	area.variables.ReadOnly = true // make it read-only
+	ed := material.Editor(th, &area.variables, "variables")
+	// Define insets ...
+	margins := layout.Inset{
+		Top:    unit.Dp(3),
+		Right:  unit.Dp(0),
+		Bottom: unit.Dp(0),
+		Left:   unit.Dp(3),
+	}
+
+	// ... and borders ...
+	border := widget.Border{
+		Color:        color.NRGBA{R: 204, G: 204, B: 204, A: 255},
+		CornerRadius: unit.Dp(3),
+		Width:        unit.Dp(2),
+	}
+	// ... before laying it out, one inside the other
+	return margins.Layout(gtx,
+		func(gtx layout.Context) layout.Dimensions {
+			return border.Layout(gtx, ed.Layout)
+		},
+	)
+}
+
+func (area *FourPaneArea) CallStack(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	area.variables.ReadOnly = true // make it read-only
+	ed1 := material.Editor(th, &area.callStack, "call stack")
+	ed1.Editor.SetText("call stack\ncall stack\ncall stack\ncall stack\ncall stack\ncall stack\ncall stack\ncall stack\ncall stack")
+
+	area.breakpoints.ReadOnly = true // make it read-only
+	ed2 := material.Editor(th, &area.breakpoints, "breakpoints")
+	ed2.Editor.SetText("breakpoints\nbreakpoints\nbreakpoints\nbreakpoints\nbreakpoints\nbreakpoints\nbreakpoints\nbreakpoints\nbreakpoints")
+	// Define insets ...
+	margins := layout.Inset{
+		Top:    unit.Dp(0),
+		Right:  unit.Dp(0),
+		Bottom: unit.Dp(3),
+		Left:   unit.Dp(3),
+	}
+
+	// ... and borders ...
+	border := widget.Border{
+		Color:        color.NRGBA{R: 204, G: 204, B: 204, A: 255},
+		CornerRadius: unit.Dp(3),
+		Width:        unit.Dp(2),
+	}
+
+	flexbox := layout.Flex{Axis: layout.Vertical}
+
+	// ... before laying it out, one inside the other
+	return margins.Layout(gtx,
+		func(gtx layout.Context) layout.Dimensions {
+			return flexbox.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return border.Layout(gtx, ed1.Layout)
+				},
+				),
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return border.Layout(gtx, ed2.Layout)
+				},
+				),
+			)
+		},
+	)
+}
+
+func (area *FourPaneArea) Terminal(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	area.variables.ReadOnly = true // make it read-only
+	ed := material.Editor(th, &area.terminal, "terminal")
+	// Define insets ...
+	margins := layout.Inset{
+		Top:    unit.Dp(0),
+		Right:  unit.Dp(3),
+		Bottom: unit.Dp(3),
+		Left:   unit.Dp(0),
+	}
+
+	// ... and borders ...
+	border := widget.Border{
+		Color:        color.NRGBA{R: 204, G: 204, B: 204, A: 255},
+		CornerRadius: unit.Dp(3),
+		Width:        unit.Dp(2),
+	}
+	// ... before laying it out, one inside the other
+	return margins.Layout(gtx,
+		func(gtx layout.Context) layout.Dimensions {
+			return border.Layout(gtx, ed.Layout)
+		},
+	)
 }
 
 func (d *Debugger) Run(w *app.Window) error {
@@ -99,21 +197,6 @@ func (d *Debugger) Run(w *app.Window) error {
 			gtx := app.NewContext(&ops, e)
 
 			area.MainSplit(gtx, th)
-
-			// VerticalSplit(gtx, th)
-
-			// Define an large label with an appropriate text:
-			title := material.H1(th, "Hello, Gio")
-
-			// Change the color of the label.
-			maroon := color.NRGBA{R: 127, G: 0, B: 0, A: 255}
-			title.Color = maroon
-
-			// Change the position of the label.
-			title.Alignment = text.Middle
-
-			// Draw the label to the graphics context.
-			title.Layout(gtx)
 
 			// Pass the drawing operations to the GPU.
 			e.Frame(gtx.Ops)
