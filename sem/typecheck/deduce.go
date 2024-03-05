@@ -72,7 +72,7 @@ func TypeOf(n ast.Expression) (types.Type, error) {
 			return xType, nil
 		} else {
 			if n.OpKind == token.Gt || n.OpKind == token.Ge || n.OpKind == token.Lt || n.OpKind == token.Le || n.OpKind == token.Eq || n.OpKind == token.Neq {
-				if !isCompatible(xType, yType) {
+				if !isCompatible(xType, yType) && !isFunctionCompatible(n.Left, n.Right) {
 					return nil, errors.Newf(n.Token().Position, "invalid operation: %v (type mismatch between %q and %q)", n, xType, yType)
 				}
 				return &types.Basic{Kind: types.Boolean}, nil

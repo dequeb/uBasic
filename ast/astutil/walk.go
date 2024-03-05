@@ -72,8 +72,16 @@ func WalkBeforeAfter(node ast.Node, before, after func(ast.Node) error) error {
 		if n != nil {
 			return walkConstItemDecl(n, before, after)
 		}
+	case *ast.JumpLabelDecl:
+		if n != nil {
+			return walkJumpLabelDecl(n, before, after)
+		}
 
 	// Statements.
+	case *ast.JumpStmt:
+		if n != nil {
+			return walkJumpStmt(n, before, after)
+		}
 	case *ast.EmptyStmt:
 		if n != nil {
 			return walkEmptyStmt(n, before, after)
@@ -181,6 +189,11 @@ func WalkBeforeAfter(node ast.Node, before, after func(ast.Node) error) error {
 		if n != nil {
 			return walkUserDefinedType(n, before, after)
 		}
+	case *ast.Comment:
+		if n != nil {
+			return walkComment(n, before, after)
+		}
+
 	default:
 		panic(fmt.Sprintf("support for walking node of type %T not yet implemented", node))
 	}
@@ -828,7 +841,7 @@ func walkFuncType(fn *ast.FuncType, before, after func(ast.Node) error) error {
 	if err := WalkBeforeAfter(fn.Result, before, after); err != nil {
 		return err
 	}
-	for i, _ := range fn.Params {
+	for i := range fn.Params {
 		if err := WalkBeforeAfter(&fn.Params[i], before, after); err != nil {
 			return err
 		}
@@ -845,7 +858,7 @@ func walkSubType(fn *ast.SubType, before, after func(ast.Node) error) error {
 	if err := before(fn); err != nil {
 		return err
 	}
-	for i, _ := range fn.Params {
+	for i := range fn.Params {
 		if err := WalkBeforeAfter(&fn.Params[i], before, after); err != nil {
 			return err
 		}
@@ -866,6 +879,49 @@ func walkUserDefinedType(typ *ast.UserDefinedType, before, after func(ast.Node) 
 		return err
 	}
 	if err := after(typ); err != nil {
+		return err
+	}
+	return nil
+}
+
+// === [ Jumps / Error Handling ] ===
+// walkJumpStmt walks the parse tree of the given jump statement in depth first
+// order.
+func walkJumpLabelDecl(typ *ast.JumpLabelDecl, before, after func(ast.Node) error) error {
+	if err := before(typ); err != nil {
+		return err
+	}
+	if err := WalkBeforeAfter(typ.Label, before, after); err != nil {
+		return err
+	}
+	if err := after(typ); err != nil {
+		return err
+	}
+	return nil
+}
+
+// walkJumpStmt walks the parse tree of the given jump statement in depth first
+// order.
+func walkJumpStmt(stmt *ast.JumpStmt, before, after func(ast.Node) error) error {
+	if err := before(stmt); err != nil {
+		return err
+	}
+	if err := WalkBeforeAfter(stmt.Label, before, after); err != nil {
+		return err
+	}
+	if err := after(stmt); err != nil {
+		return err
+	}
+	return nil
+}
+
+// walkComment walks the parse tree of the given comment in depth first
+// order.
+func walkComment(stmt *ast.Comment, before, after func(ast.Node) error) error {
+	if err := before(stmt); err != nil {
+		return err
+	}
+	if err := after(stmt); err != nil {
 		return err
 	}
 	return nil

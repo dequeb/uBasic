@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"uBasic/errors"
 	"uBasic/lexer"
@@ -234,7 +235,7 @@ func testEval(input string) object.Object {
 			e.Src = src
 			fmt.Println(err)
 		} else {
-			env := Define(info)
+			env := Define(info, os.Stdin, os.Stdout)
 			obj := Run(file, env, nil)
 			error, ok := obj.(*object.Error)
 			if ok {

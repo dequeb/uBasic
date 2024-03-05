@@ -44,7 +44,12 @@ func (s *Source) Line(position token.Position) string {
 func (s *Source) WithLineNumbers() string {
 	lines := strings.Split(s.Input, "\n")
 	for i, line := range lines {
-		lines[i] = fmt.Sprintf("% 4d %s\n", i, strings.TrimRight(line, "\n\r"))
+		lines[i] = fmt.Sprintf("% 6d %s\n", i+1, strings.TrimRight(line, "\n\r"))
 	}
 	return strings.Join(lines, "")
+}
+
+// LineCount returns the number of lines in the source.
+func (s *Source) LineCount() int {
+	return strings.Count(s.Input, "\n") + 1
 }

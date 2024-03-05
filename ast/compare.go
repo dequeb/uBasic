@@ -193,6 +193,44 @@ func (n *CallSubStmt) EqualsNode(node Node) Node {
 }
 
 // EqualsNode returns true if the two nodes are equal.
+func (n *JumpStmt) EqualsNode(node Node) Node {
+	if n == nil && node == nil {
+		return nil
+	}
+	if n == nil || node == nil {
+		return n
+	}
+
+	n2, ok := node.(*JumpStmt)
+	if !ok {
+		return n
+	}
+
+	if n.OnError != n2.OnError {
+		return n
+	}
+
+	if !n.JumpKw.Equals(n2.JumpKw) {
+		return n
+	}
+	if !n.NextKw.Equals(n2.NextKw) {
+		return n
+	}
+
+	if !n.Number.Equals(n2.Number) {
+		return n
+	}
+	if n.Label != nil {
+		return n.Label.EqualsNode(n2.Label)
+	} else {
+		if n2.Label != nil {
+			return n
+		}
+	}
+	return nil
+}
+
+// EqualsNode returns true if the two nodes are equal.
 func (n *CallOrIndexExpr) EqualsNode(node Node) Node {
 	if n == nil && node == nil {
 		return nil
@@ -426,6 +464,24 @@ func (n *SubDecl) EqualsNode(node Node) Node {
 	}
 
 	if n.SubKw.Equals(n2.SubKw) {
+		return nil
+	}
+	return n
+}
+
+// EqualsNode returns true if the two nodes are equal.
+func (n *Comment) EqualsNode(node Node) Node {
+	if n == nil && node == nil {
+		return nil
+	}
+	if n == nil || node == nil {
+		return n
+	}
+	n2, ok := node.(*Comment)
+	if !ok {
+		return n
+	}
+	if n.Text.Equals(n2.Text) {
 		return nil
 	}
 	return n
@@ -1035,7 +1091,7 @@ func (n *EnumDecl) EqualsNode(node Node) Node {
 }
 
 // EqualsNode returns true if the two nodes are equal.
-func (n *LabelDecl) EqualsNode(node Node) Node {
+func (n *JumpLabelDecl) EqualsNode(node Node) Node {
 	if n == nil && node == nil {
 		return nil
 	}
@@ -1043,12 +1099,12 @@ func (n *LabelDecl) EqualsNode(node Node) Node {
 		return n
 	}
 
-	n2, ok := node.(*LabelDecl)
+	n2, ok := node.(*JumpLabelDecl)
 	if !ok {
 		return n
 	}
 
-	return n.LabelName.EqualsNode(n2.LabelName)
+	return n.Label.EqualsNode(n2.Label)
 }
 
 // EqualsNode returns true if the two nodes are equal.

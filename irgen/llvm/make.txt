@@ -1,0 +1,5 @@
+# Compilez le fichier LLVM en un fichier d'objet
+llc -filetype=obj helloworld.ll
+
+# Liez le fichier d'objet en un exécutable
+clang helloworld.o -o helloworld

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"uBasic/errors"
 	"uBasic/eval"
 	"uBasic/lexer"
@@ -12,8 +13,8 @@ import (
 	"uBasic/source"
 )
 
-const PROMPT = ">> "
-const PROMPT_CONTINUE = ">>> "
+const PROMPT = "≻≻ "
+const PROMPT_CONTINUE = "≻≻≻ "
 
 func Start(in io.Reader, out io.Writer) {
 	scanner := bufio.NewScanner(in)
@@ -54,7 +55,7 @@ func Start(in io.Reader, out io.Writer) {
 				e.Src = &source.Source{Input: text, Name: "repl"}
 				fmt.Fprintln(out, err)
 			} else {
-				env := eval.Define(info)
+				env := eval.Define(info, os.Stdin, os.Stdout)
 				eval.Eval(nil, file, env)
 			}
 		}

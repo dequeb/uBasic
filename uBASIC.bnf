@@ -283,7 +283,23 @@ Stmt
 	| "Exit" "Sub" 											eol				<< astx.NewExitStmt($0, $1) >>
 	| Expr 													eol				<< astx.NewExprStmt($0) >>
 	| 														eol				<< astx.NewEmptyStmt($0) >>	
+	| JumpStmt												eol				<< astx.NewJumpStmt($0) >>
+	| Jumplabel
 	| error		
+	;
+
+JumpStmt
+	| SimpleJumpStmt
+	: "on error" SimpleJumpStmt
+	;
+SimpleJumpStmt
+	: "goto" simpleIdent
+	| "resume" "next"
+	| "resume" simpleIdent
+	;
+
+Jumplabel
+	: simpleIdent ":"
 	;
 
 ForStmtList

@@ -12,7 +12,7 @@ Debug.Print a
 Dim c As Boolean
 Let c = False
 Do Until c
-    Debug.Print "in loop"
+    Debug.Print "in loop 1"
     let c = True
 Loop
 
@@ -21,8 +21,8 @@ Do
     let b = b + 1
 Loop While b < 10
 
-let c= True
+let c= false
 Do
-    Debug.Print "in loop"
-    let c = False
+    Debug.Print "in loop 2"
+    let c = true
 Loop Until c

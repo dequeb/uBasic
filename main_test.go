@@ -154,64 +154,64 @@ func Test3(t *testing.T) {
 	}
 }
 
-func Test4(t *testing.T) {
-	pass := true
-	for _, dir := range directories {
-		files, err := os.ReadDir(dir)
-		if err != nil {
-			t.Log(err)
-			pass = false
-		}
+// func Test4(t *testing.T) {
+// 	pass := true
+// 	for _, dir := range directories {
+// 		files, err := os.ReadDir(dir)
+// 		if err != nil {
+// 			t.Log(err)
+// 			pass = false
+// 		}
 
-		for _, f := range files {
-			if filepath.Ext(f.Name()) == ".bas" {
-				filename := path.Join(dir, f.Name())
-				t.Log(filename)
-				// read file
-				data, err := os.ReadFile(filename)
-				if err != nil {
-					t.Log(err)
-					pass = false
-				} else {
-					s := &source.Source{Input: string(data), Name: filename}
-					l := lexer.New(string(data))
-					p := parser.New(l)
-					file := p.ParseFile()
-					if file == nil {
-						for _, err := range p.Errors() {
-							e := err.(*errors.Error)
-							e.Src = s
-							t.Log(err.Error())
-						}
-					} else {
-						file.Name = filename
-						if _, err := sem.Save(file); err != nil {
-							pass = false
-							e := err.(*errors.Error)
-							e.Src = s
-							t.Log(err.Error())
-						} else {
-							file2, err := ast.LoadFile(filename + "x")
-							if err != nil {
-								pass = false
-								t.Log(err.Error())
-							} else {
+// 		for _, f := range files {
+// 			if filepath.Ext(f.Name()) == ".bas" {
+// 				filename := path.Join(dir, f.Name())
+// 				t.Log(filename)
+// 				// read file
+// 				data, err := os.ReadFile(filename)
+// 				if err != nil {
+// 					t.Log(err)
+// 					pass = false
+// 				} else {
+// 					s := &source.Source{Input: string(data), Name: filename}
+// 					l := lexer.New(string(data))
+// 					p := parser.New(l)
+// 					file := p.ParseFile()
+// 					if file == nil {
+// 						for _, err := range p.Errors() {
+// 							e := err.(*errors.Error)
+// 							e.Src = s
+// 							t.Log(err.Error())
+// 						}
+// 					} else {
+// 						file.Name = filename
+// 						if _, err := sem.Save(file); err != nil {
+// 							pass = false
+// 							e := err.(*errors.Error)
+// 							e.Src = s
+// 							t.Log(err.Error())
+// 						} else {
+// 							file2, err := ast.LoadFile(filename + "x")
+// 							if err != nil {
+// 								pass = false
+// 								t.Log(err.Error())
+// 							} else {
 
-								errNode := file.EqualsNode(file2)
-								if errNode != nil {
-									pass = false
-									t.Log("Files are not equal : ", filename, " at ", errNode.Token().Position.String()+" : "+errNode.String())
-								} else {
-									t.Log("Files are equal: " + filename)
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	if !pass {
-		t.Fail()
-	}
-}
+// 								errNode := file.EqualsNode(file2)
+// 								if errNode != nil {
+// 									pass = false
+// 									t.Log("Files are not equal : ", filename, " at ", errNode.Token().Position.String()+" : "+errNode.String())
+// 								} else {
+// 									t.Log("Files are equal: " + filename)
+// 								}
+// 							}
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
+// 	if !pass {
+// 		t.Fail()
+// 	}
+// }

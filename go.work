@@ -18,5 +18,6 @@ use (
 	./eval/rtlib
 	./source
 	./ide
-	
+	./exec
+	./irgen
 )

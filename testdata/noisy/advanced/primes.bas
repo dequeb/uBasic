@@ -2,12 +2,14 @@ Dim Primes() As Long
 
 Function IsPrime(Number As Long) As Boolean
   Dim I As Long
+  dim SqrNumber as Long
+  Let SqrNumber = Sqr(Number)
   For I = LBound(Primes) To UBound(Primes)
       If (Number Mod Primes(I)== 0) Then 
         Let IsPrime = False
         Exit Function
       End If
-      If (Primes(I) >= Sqr(Number)) Then 
+      If (Primes(I) >= SqrNumber) Then 
         Exit For
       End If
   Next
@@ -34,11 +36,15 @@ Sub Initialize()
   Let Primes(0) = 2
 End Sub
 call Initialize()
-call BuildPrimes(100)
+dim before as Date, after as Date
+let before = Time()
+call BuildPrimes(20000)
+let after = Time()
 
 dim i as Long
-print lbound(Primes),  ubound(Primes)
+print before, " - ", after
+
 for i = LBound(Primes) to UBound(Primes)
-  Debug.Print Primes(i)
+  Debug.Print Primes(i), ", ";
 next i
 

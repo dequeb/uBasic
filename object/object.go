@@ -2,6 +2,7 @@ package object
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 )
 
 type ObjectType string
+
+var UserColor = false
 
 // any is a type that can hold any value.
 type Object interface {
@@ -45,6 +48,7 @@ const (
 	FUNCTION_OBJ ObjectType = "Function"
 	SUB_OBJ      ObjectType = "Sub"
 	CLASS_OBJ    ObjectType = "Class"
+	RESUME_OBJ   ObjectType = "Resume"
 )
 
 var (
@@ -56,7 +60,7 @@ var (
 type Environment struct {
 	fmt.Stringer
 	store  map[string]Object
-	from   Object
+	From   ast.Node
 	Parent *Environment
 }
 
@@ -75,12 +79,12 @@ func (e *Environment) Get(name string) (Object, bool) {
 
 func (e *Environment) CallStack() string {
 	str := ""
-	if e.Parent != nil {
-		str = e.Parent.CallStack()
+	if e.From != nil && e.From.Token() != nil {
+		pos := e.From.Token().Position
+		str += strconv.Itoa(pos.Line) + "\n"
 	}
-	if e.from != nil {
-		pos := e.from.Position()
-		str += e.from.String() + "(" + pos.String() + ")\n"
+	if e.Parent != nil {
+		str += e.Parent.CallStack()
 	}
 	return str
 }
@@ -118,16 +122,34 @@ func (e *Environment) Merge(env *Environment) {
 
 func (e *Environment) String() string {
 	buf := strings.Builder{}
-	if e.Parent != nil {
+
+	if e.Parent != nil && e.Parent.Parent != nil {
 		buf.WriteString(e.Parent.String())
-		buf.WriteString("==========================\n")
+		buf.WriteString("━━━━━\n")
 	}
 
-	for k, v := range e.store {
+	// must make sur the order remains constant to avoid flicker in the display
+	keys := make([]string, len(e.store))
+	i := uint64(0)
+	for k := range e.store {
+		keys[i] = k
+		i++
+	}
+	// sort keys
+	sort.Strings(keys)
+
+	var content string
+	for _, k := range keys {
+		v := e.store[k]
 		if v != nil {
 			// display all except functions
 			if v.Type() != FUNCTION_OBJ && v.Type() != SUB_OBJ {
-				content := term.RedBold(fmt.Sprint(v.String()))
+
+				if UserColor {
+					content = term.RedBold(fmt.Sprint(v.String()))
+				} else {
+					content = fmt.Sprint(v.String())
+				}
 				buf.WriteString(fmt.Sprintf("%s:%s\n", k, content))
 			}
 		}
@@ -548,7 +570,11 @@ func (a *Array) String() string {
 	buf := strings.Builder{}
 	if a.Values != nil {
 		buf.WriteString("(")
-		for i, v := range a.Values {
+		for i := 0; i < int(a.Dimensions[0]); i++ {
+			v := a.Values[uint32(i)]
+			if v == nil {
+				v = NewEmptyByType(a.SubType, a.Pos)
+			}
 			if i != 0 {
 				buf.WriteString(", ")
 			}
@@ -898,7 +924,7 @@ func (l *Class) GetValue() any {
 type Date struct {
 	Value time.Time
 	Const bool
-	Decl  *ast.EnumDecl
+	Decl  ast.Decl
 	Pos   token.Position
 }
 
@@ -1057,8 +1083,11 @@ func (e *Error) String() string {
 	if e.Stack.Source != nil {
 		line = ": " + strings.Trim(e.Stack.Source.Line(e.Pos), "\n\r\t ")
 	}
-
-	return e.Pos.String() + ": " + line + term.Color(" --> ", term.Bold) + term.RedBold(e.Value) + "\n" + e.Stack.String()
+	if UserColor {
+		return e.Pos.String() + ": " + line + term.Color(" ━━≻ ", term.Bold) + term.RedBold(e.Value) + "\n" + e.Stack.String()
+	} else {
+		return e.Pos.String() + ": " + line + " ━━≻ " + e.Value + "\n" + e.Stack.String()
+	}
 }
 
 func (e *Error) Push(pos token.Position) {
@@ -1310,6 +1339,49 @@ func (l *Sub) GetValue() any {
 	return nil
 }
 
+// ----------------------- Resume -----------------------
+// in error handling, the resume object indicates the next statement to execute
+type Resume struct {
+	Label string
+	Pos   token.Position
+}
+
+func NewResume(label string, pos token.Position) *Resume {
+	return &Resume{Label: label, Pos: pos}
+}
+
+func (r *Resume) Type() ObjectType {
+	return RESUME_OBJ
+}
+
+func (r *Resume) String() string {
+	return r.Label
+}
+
+func (r *Resume) IsConstant() bool {
+	return true
+}
+
+func (r *Resume) Copy() Object {
+	return &Resume{Label: r.Label, Pos: r.Pos}
+}
+
+func (r *Resume) Position() token.Position {
+	return r.Pos
+}
+
+func (r *Resume) Equals(other Object) bool {
+	otherResume, ok := other.(*Resume)
+	if !ok {
+		return false
+	}
+	return r.Label == otherResume.Label
+}
+
+func (l *Resume) GetValue() any {
+	return l.Label
+}
+
 // ----------------------- validation of types -----------------------
 // check that variables implement the Variable interface
 var (
@@ -1331,6 +1403,7 @@ var (
 	_ Object = &Exit{}
 	_ Object = &UserDefined{}
 	_ Object = &Class{}
+	_ Object = &Resume{}
 )
 
 // IsNil checks if an object is nil
@@ -1351,6 +1424,8 @@ func IsNil(obj Object) bool {
 	case *UserDefined:
 		return obj == nil
 	case *Class:
+		return obj == nil
+	case *Resume:
 		return obj == nil
 	default:
 		return false
@@ -1381,12 +1456,14 @@ func GetBasicType(objType ObjectType) types.BasicKind {
 		return types.Nothing
 	case RETURN_OBJ:
 		return types.Nothing
-	case USERDEF_OBJ:
-		return types.Nothing
 	case FUNCTION_OBJ:
 		return types.Nothing
 	case SUB_OBJ:
 		return types.Nothing
+	case RESUME_OBJ:
+		return types.Nothing
+	case USERDEF_OBJ:
+		return types.Enum
 	default:
 		return types.Nothing
 	}
@@ -1412,6 +1489,8 @@ func NewEmptyByKind(typ token.Kind, pos token.Position) Object {
 		return NewDateByTime(time.Time{}, pos)
 	case token.KwNothing:
 		return NOTHING
+	case token.KwResume:
+		return NewResume("", pos)
 	default:
 		return NOTHING
 	}
@@ -1437,6 +1516,8 @@ func KindToType(kind token.Kind) ObjectType {
 		return DATE_OBJ
 	case token.KwNothing:
 		return NOTHING_OBJ
+	case token.KwResume:
+		return RESUME_OBJ
 	default:
 		return NOTHING_OBJ
 	}
@@ -1463,6 +1544,8 @@ func NewEmptyByType(typ ObjectType, pos token.Position) Object {
 		return NewVariantByObject(NOTHING, pos)
 	case NOTHING_OBJ:
 		return NOTHING
+	case RESUME_OBJ:
+		return NewResume("", pos)
 	default:
 		return nil
 	}

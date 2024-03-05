@@ -679,6 +679,26 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 
 	// scope specifies the current lexical scope.
 	scope := fileScope
+	labelForwardDeclarations := make(map[string]*ast.Identifier)
+
+	secondPass := func() error {
+		// Second pass, resolve forward declarations in file context.
+		for name, ident := range labelForwardDeclarations {
+			// find label in scope
+			if decl, ok := scope.Lookup(name, true); ok {
+				// verify that identifier is a label
+				if _, ok := decl.(*ast.JumpLabelDecl); !ok {
+					return errors.Newf(ident.Token().Position, "undeclared label %q", ident.Name)
+				}
+				ident.Decl = decl
+				// save to delete: https://stackoverflow.com/questions/23229975/is-it-safe-to-remove-selected-keys-from-map-within-a-range-loop
+				delete(labelForwardDeclarations, name)
+			} else {
+				return errors.Newf(ident.Token().Position, "undefined label %q", name)
+			}
+		}
+		return nil
+	}
 
 	// resolve performs identifier resolution, mapping identifiers to the
 	// corresponding declarations of the closest lexical scope.
@@ -721,6 +741,23 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 						return errors.Newf(n.Token().Position, "redeclaration of %v", n)
 					}
 				}
+			case *ast.JumpLabelDecl:
+				// if node is a jump label declaration
+				// then we need to resolve the label declaration
+				// verify that the declaration is not a keyword
+				name := n.Label.Name
+				if token.IsKeyword(name) {
+					return errors.Newf(n.Token().Position, "cannot declare %v, it is a reserved keyword", name)
+				}
+				// verify that the declaration is not a redeclaration
+				if decl, ok := scope.Lookup(n.Label.Name, true); ok {
+					return errors.Newf(n.Token().Position, "redeclaration of %v", n.Label)
+				} else {
+					// verify that the declaration offset is the same
+					if decl != nil && n != nil && decl.Token().Position != n.Token().Position {
+						return errors.Newf(n.Token().Position, "redeclaration of %v", n.Label)
+					}
+				}
 			case *ast.EnumDecl:
 				// verify that the declaration is not a keyword
 				name := n.Name().Name
@@ -740,9 +777,9 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 				for index, value := range enum.Values {
 
 					constDecl := &ast.ConstDeclItem{
-						ConstName:  &ast.Identifier{Name: value.Name, Tok: value.Token()},
+						ConstName:  &ast.Identifier{Name: name + "." + value.Name, Tok: value.Token(), Decl: n},
 						ConstType:  constType,
-						ConstValue: &ast.BasicLit{Kind: token.LongLit, Value: strconv.Itoa(index)},
+						ConstValue: &ast.BasicLit{Kind: token.LongLit, Value: strconv.Itoa(index), ValPos: value.Token()},
 					}
 					// verify that the declaration is not a keyword
 					constName := constDecl.ConstName.Name
@@ -755,7 +792,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 						return errors.Newf(n.Token().Position, "redeclaration of %v", constName)
 					} else {
 						// verify that the declaration offset is the same
-						if decl != nil && constDecl != nil && decl.Token().Position != constDecl.Token().Position {
+						if decl != nil && decl.Token().Position != constDecl.Token().Position {
 							return errors.Newf(n.Token().Position, "redeclaration of %v", constName)
 						}
 					}
@@ -795,23 +832,30 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 			// then we need to resolve the identifier
 
 			if n.Decl == nil {
-				// check if it is a basic type first
-				// the $ sign had to be added to break conflict between Date basic type and Date function; string type and string function
-				// as type and function names are in the same scope object
-				decl, ok := scope.Lookup(n.Name+"$", false)
-				if !ok {
-					decl, ok = scope.Lookup(n.Name, false)
+				// if it is not a label
+				labelParent := n.GetParent()
+				if _, ok := labelParent.(*ast.JumpStmt); ok {
+					break // will be validated in second pass
+				} else {
+
+					// check if it is a basic type first
+					// the $ sign had to be added to break conflict between Date basic type and Date function; string type and string function
+					// as type and function names are in the same scope object
+					decl, ok := scope.Lookup(n.Name+"$", false)
 					if !ok {
-						return errors.Newf(n.Token().Position, "undeclared identifier %q", n)
+						decl, ok = scope.Lookup(n.Name, false)
+						if !ok {
+							return errors.Newf(n.Token().Position, "undeclared identifier %q", n)
+						}
 					}
-				}
-				// cannot use function name as a declaration
-				if _, ok := decl.(*ast.FuncDecl); ok {
-					if parent, ok := n.GetParent().(*ast.UserDefinedType); ok {
-						return errors.Newf(n.Token().Position, "cannot use function name as a declaration in %q", parent.Identifier)
+					// cannot use function name as a declaration
+					if _, ok := decl.(*ast.FuncDecl); ok {
+						if parent, ok := n.GetParent().(*ast.UserDefinedType); ok {
+							return errors.Newf(n.Token().Position, "cannot use function name as a declaration in %q", parent.Identifier)
+						}
 					}
+					n.Decl = decl
 				}
-				n.Decl = decl
 			}
 		case *ast.CallSelectorExpr:
 			switch root := n.Root.(type) {
@@ -872,14 +916,26 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 				}
 
 			}
+		case *ast.JumpStmt:
+			// if node is a jump statement
+			// then we need to resolve the label
+			if n.Label != nil {
+				// put the label in the forward declarations scope
+				labelForwardDeclarations[n.Label.Name] = n.Label
+			}
+			return nil
 		}
 		return nil
 	}
 
 	// after reverts to the outer scope after traversing block statements.
 	after := func(n ast.Node) error {
-
 		if _, ok := n.(ast.FuncOrSub); ok {
+			// Second pass, resolve forward declarations.
+			if err := secondPass(); err != nil {
+				return err
+			}
+
 			scope = scope.Outer
 			// } else if fn, ok := n.(*ast.FuncDecl); ok && !astutil.IsDef(fn) {
 			// 	scope = scope.Outer
@@ -892,5 +948,8 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 		return err
 	}
 
+	if err := secondPass(); err != nil {
+		return err
+	}
 	return nil
 }

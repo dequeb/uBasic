@@ -151,6 +151,11 @@ func testConstStatement(t *testing.T, s ast.Node, name string, typ string, value
 		t.Errorf("letStmt.Type.Value not '%s'. got=%s", typ, constType.String())
 		return false
 	}
+	testValue := Stmt.Consts[0].Value().String()
+	if testValue != value {
+		t.Errorf("Stmt.Consts[0].Value.String() not '%s'. got=%s", value, testValue)
+		return false
+	}
 
 	return true
 }
@@ -991,6 +996,134 @@ func testExpressionStatement(t *testing.T, s ast.Node, left string, right string
 
 	if expr.OpKind != token.Assign {
 		t.Errorf("ExprStmt.Op   not '%s'. got=%s", "=", expr.OpToken.Literal)
+		return false
+	}
+
+	return true
+}
+
+func TestErrorHandlingStatement(t *testing.T) {
+	input := `On Error Resume Next
+	On Error _
+		GoTo 0
+	On Error GoTo ErrorHandler
+	Resume Next
+	Resume ErrorHandler
+	`
+
+	l := lexer.New(input)
+	p := New(l)
+
+	file := p.ParseFile()
+	if file == nil {
+		for _, e := range p.Errors() {
+			t.Log(e.Error())
+		}
+		t.Fatalf("ParseFile() returned nil")
+	}
+	if len(file.StatementLists) != 5 {
+		t.Fatalf("file.Statements does not contain 5 statements. got=%d", len(file.StatementLists))
+	}
+
+	tests := []struct {
+		exprectedOnError bool
+		ExpectedKeyword  string
+		ExpectedLabel    string
+	}{
+		{true, "Resume", "Next"},
+		{true, "GoTo", "0"},
+		{true, "GoTo", "ErrorHandler"},
+		{false, "Resume", "Next"},
+		{false, "Resume", "ErrorHandler"},
+	}
+
+	for i, tt := range tests {
+		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+
+		if !testErrorHandlingStatement(t, stmt, tt.exprectedOnError, tt.ExpectedKeyword, tt.ExpectedLabel) {
+			return
+		}
+	}
+}
+
+func testErrorHandlingStatement(t *testing.T, s ast.Node, onError bool, keyword string, label string) bool {
+
+	Stmt, ok := s.(*ast.JumpStmt)
+	if !ok {
+		t.Errorf("s not *ast.ErrorHandlingStmt. got=%T", s)
+		return false
+	}
+
+	if Stmt.OnError != onError {
+		t.Errorf("ErrorHandlingStmt.OnError   not '%t'. got=%t", onError, Stmt.OnError)
+		return false
+	}
+
+	if Stmt.JumpKw.Literal != keyword {
+		t.Errorf("ErrorHandlingStmt.Keyword   not '%s'. got=%s", keyword, Stmt.JumpKw.Literal)
+		return false
+	}
+
+	var labelStr string
+	if Stmt.Label != nil {
+		labelStr = Stmt.Label.Name
+	} else if Stmt.NextKw != nil {
+		labelStr = Stmt.NextKw.Literal
+	} else if Stmt.Number != nil {
+		labelStr = Stmt.Number.Literal
+	}
+	if labelStr != label {
+		t.Errorf("ErrorHandlingStmt.Label   not '%s'. got=%s ", label, labelStr)
+		return false
+	}
+
+	return true
+}
+
+// test labels
+func TestLabelStatement(t *testing.T) {
+	input := `label:
+	`
+
+	l := lexer.New(input)
+	p := New(l)
+
+	file := p.ParseFile()
+	if file == nil {
+		for _, e := range p.Errors() {
+			t.Log(e.Error())
+		}
+		t.Fatalf("ParseFile() returned nil")
+	}
+	if len(file.StatementLists) != 1 {
+		t.Fatalf("file.Statements does not contain 1 statement. got=%d", len(file.StatementLists))
+	}
+
+	tests := []struct {
+		expectedLabel string
+	}{
+		{"label"},
+	}
+
+	for i, tt := range tests {
+		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+
+		if !testLabelStatement(t, stmt, tt.expectedLabel) {
+			return
+		}
+	}
+}
+
+func testLabelStatement(t *testing.T, s ast.Node, label string) bool {
+
+	Stmt, ok := s.(*ast.JumpLabelDecl)
+	if !ok {
+		t.Errorf("s not *ast.LabelStmt. got=%T", s)
+		return false
+	}
+
+	if Stmt.Label.Name != label {
+		t.Errorf("LabelStmt.Label   not '%s'. got=%s", label, Stmt.Label.Name)
 		return false
 	}
 

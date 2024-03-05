@@ -67,7 +67,14 @@ func (l *Lexer) NextToken() *token.Token {
 	case token.Comma.String()[0]:
 		tok = newToken(token.Comma, l.ch, l.lcPosition)
 	case token.Underscore.String()[0]:
-		tok = newToken(token.Underscore, l.ch, l.lcPosition)
+		// check if it is a line continuation
+		if l.peekChar() == '\n' || l.peekChar() == '\r' {
+			l.readChar()
+			l.readChar()
+			return l.NextToken()
+		} else {
+			tok = newToken(token.Illegal, l.ch, l.lcPosition)
+		}
 	case token.Concat.String()[0]:
 		tok = newToken(token.Concat, l.ch, l.lcPosition)
 	case token.Eq.String()[0]:
@@ -127,21 +134,26 @@ func (l *Lexer) NextToken() *token.Token {
 			tok.Kind = token.LongLit
 			tok.Literal = l.readNumber()
 			tok.Position = l.lcPosition.Copy()
-			// is it a long, a double or a currency?
-			if l.ch == '$' {
-				l.readChar()
-				tok.Literal += "$"
-				tok.Kind = token.CurrencyLit
-			} else if l.ch == '.' {
-				l.readChar()
-				tok.Kind = token.DoubleLit
-				tok.Literal += "." + l.readNumber()
-				if l.ch == '$' {
-					l.readChar()
-					tok.Kind = token.CurrencyLit
-					tok.Literal += "$"
+			// check if it is a float
+			if l.ch == '.' {
+				l.readChar() // skip the .
+				if isDigit(l.ch) {
+					tok.Kind = token.DoubleLit
+					tok.Literal += "." + l.readNumber()
+					if l.ch == '$' {
+						tok.Kind = token.CurrencyLit
+						tok.Literal += "$"
+						l.readChar() // skip the $
+					}
+				} else {
+					tok.Kind = token.Illegal
 				}
+			} else if l.ch == '$' {
+				tok.Kind = token.CurrencyLit
+				tok.Literal += "$"
+				l.readChar() // skip the $
 			}
+
 			return &tok
 		} else if l.ch == '#' {
 			// read a date time
@@ -181,13 +193,14 @@ func (l *Lexer) NextToken() *token.Token {
 			return &tok
 		} else if l.ch == '\'' {
 			// comment: skip the rest of the line
+			// we keep comments in AST to be able to print the original code
+			tok.Kind = token.Comment
 			for l.ch != '\n' && l.ch != '\r' && l.ch != 0 {
+				tok.Literal += string(l.ch)
 				l.readChar()
 			}
-			// ajust the position
-			// l.lcReadPosition.Line++
-			// l.lcReadPosition.Column = 0
-			return l.NextToken()
+
+			return &tok
 		} else {
 			tok = newToken(token.Illegal, l.ch, l.lcPosition)
 		}

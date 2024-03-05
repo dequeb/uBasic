@@ -70,7 +70,7 @@ func (p *Parser) nextToken() {
 	p.fifo.pop()
 	p.fifo.push(p.l.NextToken())
 	// skip virtual EOL token
-	if p.curTokenIs(token.Underscore) && p.peekTokenIs(1, token.EOL) {
+	if p.currentTokenIs(token.Underscore) && p.peekTokenIs(1, token.EOL) {
 		p.fifo.pop() // skip the underscore
 		p.fifo.pop() // skip the EOL
 	}
@@ -105,7 +105,7 @@ func (p *Parser) currentToken() *token.Token {
 	return p.fifo.peek(0)
 }
 
-func (p *Parser) curTokenIs(k token.Kind) bool {
+func (p *Parser) currentTokenIs(k token.Kind) bool {
 	return p.currentToken().Kind == k
 }
 
@@ -129,7 +129,7 @@ func (p *Parser) ParseFile() *ast.File {
 		} else {
 			return nil
 		}
-		if !(p.curTokenIs(token.EOL) || p.curTokenIs(token.EOF)) {
+		if !(p.currentTokenIs(token.EOL) || p.currentTokenIs(token.EOF)) {
 			p.AddError(p.currentToken(), "expecting EOL")
 			return nil
 		}
@@ -147,7 +147,7 @@ func (p *Parser) ParseStatementList(inSub bool, inFunction bool) *ast.StatementL
 		isNil := ast.IsNil(stmt)
 		if !isNil {
 			statementList.Statements = append(statementList.Statements, stmt)
-			if p.curTokenIs(token.Colon) {
+			if p.currentTokenIs(token.Colon) {
 				p.nextToken()
 			}
 		} else {
@@ -160,6 +160,8 @@ func (p *Parser) ParseStatementList(inSub bool, inFunction bool) *ast.StatementL
 
 func (p *Parser) ParseStatement(inSub bool, inFunction bool) ast.Statement {
 	switch p.currentToken().Kind {
+	case token.Comment:
+		return p.ParseComment()
 	case token.KwDim:
 		return p.ParseDimStatement()
 	case token.KwConst:
@@ -184,7 +186,7 @@ func (p *Parser) ParseStatement(inSub bool, inFunction bool) ast.Statement {
 		return p.ParseIfStatement(inSub, inFunction)
 	case token.KwFor:
 		return p.ParseForStatement(inSub, inFunction)
-	case token.KwStop, token.KwError, token.KwResume, token.KwGoto:
+	case token.KwStop, token.KwError:
 		return p.ParseSpecialStatement()
 	case token.KwSelect:
 		return p.ParseSelectStatement(inSub, inFunction)
@@ -196,6 +198,11 @@ func (p *Parser) ParseStatement(inSub bool, inFunction bool) ast.Statement {
 		return p.ParseExpressionStatement()
 	case token.KwCall:
 		return p.ParseSubroutineCall()
+	case token.KwOn:
+		return p.ParseJOnErrorJumpStatement()
+	case token.KwResume:
+		return p.ParseResumeStatement()
+
 	default:
 		return p.ParseSpecialStatement()
 	}
@@ -209,14 +216,14 @@ func (p *Parser) ParseDimStatement() *ast.DimDecl {
 	stmt := &ast.DimDecl{DimKw: p.currentToken()}
 	stmt.Vars = make([]ast.VarDecl, 0)
 	stmt.DimKw = p.currentToken()
-	if !p.curTokenIs(token.KwDim) {
+	if !p.currentTokenIs(token.KwDim) {
 		p.AddError(p.currentToken(), "expected Dim")
 		return nil
 	}
 	p.nextToken()
 
 	for {
-		if !p.curTokenIs(token.Identifier) {
+		if !p.currentTokenIs(token.Identifier) {
 			p.AddError(p.currentToken(), "expected identifier")
 			return nil
 		}
@@ -239,7 +246,7 @@ func (p *Parser) ParseDimStatement() *ast.DimDecl {
 		stmt.Vars = append(stmt.Vars, varDecl)
 
 		// look for a comma to see if there are more variables
-		if !p.curTokenIs(token.Comma) {
+		if !p.currentTokenIs(token.Comma) {
 			break
 		}
 		p.nextToken() // skip the comma
@@ -252,11 +259,17 @@ func (p *Parser) ParseDimStatement() *ast.DimDecl {
 }
 
 func (p *Parser) isEndOfStatement() bool {
-	return p.isEndOfStatementlist() || p.curTokenIs(token.Colon)
+	return p.isEndOfStatementlist() || p.currentTokenIs(token.Colon) || p.currentTokenIs(token.Comment)
 }
 
 func (p *Parser) isEndOfStatementlist() bool {
-	return p.curTokenIs(token.EOL) || p.curTokenIs(token.EOF)
+	return p.currentTokenIs(token.EOL) || p.currentTokenIs(token.EOF)
+}
+
+func (p *Parser) ParseComment() *ast.Comment {
+	tok := &ast.Comment{Text: p.currentToken()}
+	p.nextToken()
+	return tok
 }
 
 func (p *Parser) ParseScalarDecl() *ast.ScalarDecl {
@@ -267,7 +280,7 @@ func (p *Parser) ParseScalarDecl() *ast.ScalarDecl {
 		return nil
 	}
 	// skip as keyword
-	if !p.curTokenIs(token.KwAs) {
+	if !p.currentTokenIs(token.KwAs) {
 		p.AddError(p.currentToken(), "expected 'as'")
 		return nil
 	}
@@ -290,7 +303,7 @@ func (p *Parser) ParseArrayDecl() *ast.ArrayDecl {
 		return nil
 	}
 	// skip left parenthesis
-	if !p.curTokenIs(token.Lparen) {
+	if !p.currentTokenIs(token.Lparen) {
 		p.AddError(p.currentToken(), "expected left parenthesis")
 		return nil
 	}
@@ -303,7 +316,7 @@ func (p *Parser) ParseArrayDecl() *ast.ArrayDecl {
 	}
 
 	// skip as keyword
-	if !p.curTokenIs(token.KwAs) {
+	if !p.currentTokenIs(token.KwAs) {
 		p.AddError(p.currentToken(), "expected 'as'")
 		return nil
 	}
@@ -318,7 +331,7 @@ func (p *Parser) ParseArrayType() *ast.ArrayType {
 	arrayType := &ast.ArrayType{}
 
 	// get left parenthesis
-	if !p.curTokenIs(token.Lparen) {
+	if !p.currentTokenIs(token.Lparen) {
 		p.AddError(p.currentToken(), "expected left parenthesis")
 		return nil
 	}
@@ -330,7 +343,7 @@ func (p *Parser) ParseArrayType() *ast.ArrayType {
 	// read array size
 	for {
 		var size ast.Expression
-		if !p.curTokenIs(token.Rparen) {
+		if !p.currentTokenIs(token.Rparen) {
 			// read size
 			size = p.ParseExpression()
 			if size == nil {
@@ -345,14 +358,14 @@ func (p *Parser) ParseArrayType() *ast.ArrayType {
 		arrayType.Dimensions = append(arrayType.Dimensions, size)
 
 		// look for a comma to see if there are more sizes
-		if !p.curTokenIs(token.Comma) {
+		if !p.currentTokenIs(token.Comma) {
 			break
 		}
 		p.nextToken() // skip the comma
 	}
 
 	// get right parenthesis
-	if !p.curTokenIs(token.Rparen) {
+	if !p.currentTokenIs(token.Rparen) {
 		p.AddError(p.currentToken(), "expected right parenthesis")
 		return nil
 	}
@@ -381,7 +394,7 @@ func (p *Parser) ParseType() ast.Type {
 }
 
 func (p *Parser) ParseIdentifier() *ast.Identifier {
-	if !p.curTokenIs(token.Identifier) {
+	if !p.currentTokenIs(token.Identifier) {
 		p.AddError(p.currentToken(), "expected identifier")
 		return nil
 	}
@@ -398,14 +411,14 @@ func (p *Parser) ParseConstStatement() *ast.ConstDecl {
 	stmt := &ast.ConstDecl{ConstKw: p.currentToken()}
 	stmt.Consts = make([]ast.ConstDeclItem, 0)
 	stmt.ConstKw = p.currentToken()
-	if !p.curTokenIs(token.KwConst) {
+	if !p.currentTokenIs(token.KwConst) {
 		p.AddError(p.currentToken(), "expected Const")
 		return nil
 	}
 	p.nextToken()
 
 	for {
-		if !p.curTokenIs(token.Identifier) {
+		if !p.currentTokenIs(token.Identifier) {
 			p.AddError(p.currentToken(), "expected identifier")
 			return nil
 		}
@@ -418,7 +431,7 @@ func (p *Parser) ParseConstStatement() *ast.ConstDecl {
 		stmt.Consts = append(stmt.Consts, *constDecl)
 
 		// look for a comma to see if there are more variables
-		if !p.curTokenIs(token.Comma) {
+		if !p.currentTokenIs(token.Comma) {
 			break
 		}
 		p.nextToken() // skip the comma
@@ -438,7 +451,7 @@ func (p *Parser) ParseConstDeclItem() *ast.ConstDeclItem {
 		return nil
 	}
 	// skip as keyword
-	if !p.curTokenIs(token.KwAs) {
+	if !p.currentTokenIs(token.KwAs) {
 		p.AddError(p.currentToken(), "expected 'as'")
 		return nil
 	}
@@ -452,7 +465,7 @@ func (p *Parser) ParseConstDeclItem() *ast.ConstDeclItem {
 	}
 
 	// skip equal sign
-	if !p.curTokenIs(token.Assign) {
+	if !p.currentTokenIs(token.Assign) {
 		p.AddError(p.currentToken(), "expected '='")
 		return nil
 	}
@@ -474,14 +487,14 @@ func (p *Parser) ParseEnumStatement() *ast.EnumDecl {
 	stmt := &ast.EnumDecl{EnumKw: p.currentToken()}
 	stmt.Values = make([]ast.Identifier, 0)
 	stmt.EnumKw = p.currentToken()
-	if !p.curTokenIs(token.KwEnum) {
+	if !p.currentTokenIs(token.KwEnum) {
 		p.AddError(p.currentToken(), "expected Enum")
 		return nil
 	}
 	p.nextToken()
 
 	// read identifier
-	if !p.curTokenIs(token.Identifier) {
+	if !p.currentTokenIs(token.Identifier) {
 		// p.AddError(p.currentToken(), "expected identifier")
 		return nil
 	}
@@ -491,14 +504,14 @@ func (p *Parser) ParseEnumStatement() *ast.EnumDecl {
 	for {
 
 		// look for end of line
-		if !p.curTokenIs(token.EOL) {
+		if !p.currentTokenIs(token.EOL) {
 			p.AddError(p.currentToken(), "expected EOL")
 			return nil
 		}
 		p.nextToken()
 
 		// look for end of enumeration
-		if p.curTokenIs(token.KwEnd) {
+		if p.currentTokenIs(token.KwEnd) {
 			break
 		}
 
@@ -512,14 +525,14 @@ func (p *Parser) ParseEnumStatement() *ast.EnumDecl {
 	}
 
 	// skip end keyword
-	if !p.curTokenIs(token.KwEnd) {
+	if !p.currentTokenIs(token.KwEnd) {
 		p.AddError(p.currentToken(), "expected 'end'")
 		return nil
 	}
 	p.nextToken()
 
 	// skip enum keyword
-	if !p.curTokenIs(token.KwEnum) {
+	if !p.currentTokenIs(token.KwEnum) {
 		p.AddError(p.currentToken(), "expected 'enum'")
 		return nil
 	}
@@ -537,7 +550,7 @@ func (p *Parser) ParseEnumStatement() *ast.EnumDecl {
 func (p *Parser) ParseFunctionStatement() *ast.FuncDecl {
 	stmt := &ast.FuncDecl{FunctionKw: p.currentToken()}
 
-	if !p.curTokenIs(token.KwFunction) {
+	if !p.currentTokenIs(token.KwFunction) {
 		p.AddError(p.currentToken(), "expected Function")
 		return nil
 	}
@@ -557,7 +570,7 @@ func (p *Parser) ParseFunctionStatement() *ast.FuncDecl {
 	}
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -573,7 +586,7 @@ func (p *Parser) ParseFunctionStatement() *ast.FuncDecl {
 func (p *Parser) ParseFunctionType() *ast.FuncType {
 	funcType := &ast.FuncType{}
 
-	if !p.curTokenIs(token.Lparen) {
+	if !p.currentTokenIs(token.Lparen) {
 		p.AddError(p.currentToken(), "expected left parenthesis")
 		return nil
 	}
@@ -581,7 +594,7 @@ func (p *Parser) ParseFunctionType() *ast.FuncType {
 	p.nextToken()
 	funcType.Params = make([]ast.ParamItem, 0)
 	for {
-		if p.curTokenIs(token.Rparen) {
+		if p.currentTokenIs(token.Rparen) {
 			break
 		}
 		param := p.ParseParamItem()
@@ -590,11 +603,11 @@ func (p *Parser) ParseFunctionType() *ast.FuncType {
 			return nil
 		}
 		funcType.Params = append(funcType.Params, *param)
-		if p.curTokenIs(token.Comma) {
+		if p.currentTokenIs(token.Comma) {
 			p.nextToken()
 		}
 	}
-	if !p.curTokenIs(token.Rparen) {
+	if !p.currentTokenIs(token.Rparen) {
 		p.AddError(p.currentToken(), "expected right parenthesis")
 		return nil
 	}
@@ -602,7 +615,7 @@ func (p *Parser) ParseFunctionType() *ast.FuncType {
 	p.nextToken()
 
 	// skip as keyword
-	if !p.curTokenIs(token.KwAs) {
+	if !p.currentTokenIs(token.KwAs) {
 		p.AddError(p.currentToken(), "expected 'as'")
 		return nil
 	}
@@ -623,21 +636,21 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 	param := &ast.ParamItem{}
 
 	// read Optional keyword
-	if p.curTokenIs(token.KwOptional) {
+	if p.currentTokenIs(token.KwOptional) {
 		param.Optional = true
 		p.nextToken()
 	}
 
 	// read byVal keyword
-	if p.curTokenIs(token.KwByVal) {
+	if p.currentTokenIs(token.KwByVal) {
 		param.ByVal = true
 		p.nextToken()
-	} else if p.curTokenIs(token.KwByRef) {
+	} else if p.currentTokenIs(token.KwByRef) {
 		param.ByVal = false
 		p.nextToken()
 	}
 	// read ParamArray keyword
-	if p.curTokenIs(token.KwParamArray) {
+	if p.currentTokenIs(token.KwParamArray) {
 		param.ParamArray = true
 		p.nextToken()
 	}
@@ -648,14 +661,14 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 	}
 
 	// check if it is an array
-	if p.curTokenIs(token.Lparen) && p.peekTokenIs(1, token.Rparen) {
+	if p.currentTokenIs(token.Lparen) && p.peekTokenIs(1, token.Rparen) {
 		param.IsArray = true
 		p.nextToken()
 		p.nextToken()
 	}
 
 	// skip as keyword
-	if !p.curTokenIs(token.KwAs) {
+	if !p.currentTokenIs(token.KwAs) {
 		p.AddError(p.currentToken(), "expected 'as'")
 		return nil
 	}
@@ -668,7 +681,7 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 	}
 
 	// look for default value
-	if p.curTokenIs(token.Assign) {
+	if p.currentTokenIs(token.Assign) {
 		p.nextToken()
 		param.DefaultValue = p.ParseExpression()
 		if param.DefaultValue == nil {
@@ -685,7 +698,7 @@ func (p *Parser) ParseFunctionBody() []ast.StatementList {
 	block := make([]ast.StatementList, 0)
 
 	// read function statement lists
-	for !(p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwFunction)) {
+	for !(p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwFunction)) {
 
 		stmtList := p.ParseStatementList(false, true)
 		if stmtList == nil {
@@ -695,14 +708,14 @@ func (p *Parser) ParseFunctionBody() []ast.StatementList {
 		p.nextToken()
 	}
 	// skip end keyword
-	if !p.curTokenIs(token.KwEnd) {
+	if !p.currentTokenIs(token.KwEnd) {
 		p.AddError(p.currentToken(), "expected 'end'")
 		return nil
 	}
 	p.nextToken()
 
 	// skip function keyword
-	if !p.curTokenIs(token.KwFunction) {
+	if !p.currentTokenIs(token.KwFunction) {
 		p.AddError(p.currentToken(), "expected 'function'")
 		return nil
 	}
@@ -713,7 +726,7 @@ func (p *Parser) ParseFunctionBody() []ast.StatementList {
 // ParseExitStatement parses an exit statement.
 func (p *Parser) ParseExitStatement(inSub bool, inFunction bool) *ast.ExitStmt {
 	stmt := &ast.ExitStmt{ExitKw: p.currentToken()}
-	if !p.curTokenIs(token.KwExit) {
+	if !p.currentTokenIs(token.KwExit) {
 		p.AddError(p.currentToken(), "expected Exit")
 		return nil
 	}
@@ -752,7 +765,7 @@ func (p *Parser) ParseExitStatement(inSub bool, inFunction bool) *ast.ExitStmt {
 // ParseEmptyStatement parses an empty statement.
 func (p *Parser) ParseEmptyStatement() *ast.EmptyStmt {
 	// check if it is an EOL
-	if !p.curTokenIs(token.EOL) || p.peekTokenIs(1, token.EOF) {
+	if !p.currentTokenIs(token.EOL) || p.peekTokenIs(1, token.EOF) {
 		p.AddError(p.currentToken(), "expected EOL or EOF")
 		return nil
 	}
@@ -769,7 +782,7 @@ func (p *Parser) ParseEmptyStatement() *ast.EmptyStmt {
 func (p *Parser) ParseSubStatement() *ast.SubDecl {
 	stmt := &ast.SubDecl{SubKw: p.currentToken()}
 
-	if !p.curTokenIs(token.KwSub) {
+	if !p.currentTokenIs(token.KwSub) {
 		p.AddError(p.currentToken(), "expected subroutine")
 		return nil
 	}
@@ -789,7 +802,7 @@ func (p *Parser) ParseSubStatement() *ast.SubDecl {
 	}
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -805,7 +818,7 @@ func (p *Parser) ParseSubStatement() *ast.SubDecl {
 func (p *Parser) ParseSubType() *ast.SubType {
 	SubType := &ast.SubType{}
 
-	if !p.curTokenIs(token.Lparen) {
+	if !p.currentTokenIs(token.Lparen) {
 		p.AddError(p.currentToken(), "expected left parenthesis")
 		return nil
 	}
@@ -813,7 +826,7 @@ func (p *Parser) ParseSubType() *ast.SubType {
 	p.nextToken()
 	SubType.Params = make([]ast.ParamItem, 0)
 	for {
-		if p.curTokenIs(token.Rparen) {
+		if p.currentTokenIs(token.Rparen) {
 			break
 		}
 		param := p.ParseParamItem()
@@ -822,11 +835,11 @@ func (p *Parser) ParseSubType() *ast.SubType {
 			return nil
 		}
 		SubType.Params = append(SubType.Params, *param)
-		if p.curTokenIs(token.Comma) {
+		if p.currentTokenIs(token.Comma) {
 			p.nextToken()
 		}
 	}
-	if !p.curTokenIs(token.Rparen) {
+	if !p.currentTokenIs(token.Rparen) {
 		p.AddError(p.currentToken(), "expected right parenthesis")
 		return nil
 	}
@@ -841,7 +854,7 @@ func (p *Parser) ParseSubBody() []ast.StatementList {
 	block := make([]ast.StatementList, 0)
 
 	// read subroutine statement lists
-	for !(p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwSub)) {
+	for !(p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwSub)) {
 
 		stmtList := p.ParseStatementList(true, false)
 		if stmtList == nil {
@@ -850,20 +863,20 @@ func (p *Parser) ParseSubBody() []ast.StatementList {
 		block = append(block, *stmtList)
 		p.nextToken()
 
-		if p.curTokenIs(token.EOF) {
+		if p.currentTokenIs(token.EOF) {
 			p.AddError(p.currentToken(), "expected 'end'")
 			return nil
 		}
 	}
 	// skip end keyword
-	if !p.curTokenIs(token.KwEnd) {
+	if !p.currentTokenIs(token.KwEnd) {
 		p.AddError(p.currentToken(), "expected 'end'")
 		return nil
 	}
 	p.nextToken()
 
 	// skip sub keyword
-	if !p.curTokenIs(token.KwSub) {
+	if !p.currentTokenIs(token.KwSub) {
 		p.AddError(p.currentToken(), "expected 'sub'")
 		return nil
 	}
@@ -874,7 +887,7 @@ func (p *Parser) ParseSubBody() []ast.StatementList {
 // ParseInFunctionExitStatement parses an exit statement.
 func (p *Parser) ParseInSubExitStatement() *ast.ExitStmt {
 	stmt := &ast.ExitStmt{ExitKw: p.currentToken()}
-	if !p.curTokenIs(token.KwExit) {
+	if !p.currentTokenIs(token.KwExit) {
 		p.AddError(p.currentToken(), "expected Exit")
 		return nil
 	}
@@ -897,7 +910,7 @@ func (p *Parser) ParseInSubExitStatement() *ast.ExitStmt {
 // ----------------------------------------------------------------------------
 func (p *Parser) ParseIfStatement(inSub bool, inFunction bool) *ast.IfStmt {
 	stmt := &ast.IfStmt{IfKw: p.currentToken()}
-	if !p.curTokenIs(token.KwIf) {
+	if !p.currentTokenIs(token.KwIf) {
 		p.AddError(p.currentToken(), "expected If")
 		return nil
 	}
@@ -910,14 +923,14 @@ func (p *Parser) ParseIfStatement(inSub bool, inFunction bool) *ast.IfStmt {
 		return nil
 	}
 	// look for then keyword
-	if !p.curTokenIs(token.KwThen) {
+	if !p.currentTokenIs(token.KwThen) {
 		p.AddError(p.currentToken(), "expected 'then'")
 		return nil
 	}
 	p.nextToken()
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -930,24 +943,24 @@ func (p *Parser) ParseIfStatement(inSub bool, inFunction bool) *ast.IfStmt {
 	}
 
 	// look for ElseIf keyword
-	for p.curTokenIs(token.KwElseIf) {
+	for p.currentTokenIs(token.KwElseIf) {
 		stmt.ElseIf = append(stmt.ElseIf, *p.ParseElseIfStatement(inSub, inFunction))
 	}
 
 	// look for Else keyword
-	if p.curTokenIs(token.KwElse) {
+	if p.currentTokenIs(token.KwElse) {
 		stmt.Else = p.ParseElseStatement(inSub, inFunction)
 	}
 
 	// skip end keyword
-	if !p.curTokenIs(token.KwEnd) {
+	if !p.currentTokenIs(token.KwEnd) {
 		p.AddError(p.currentToken(), "expected 'end'")
 		return nil
 	}
 	p.nextToken()
 
 	// skip if keyword
-	if !p.curTokenIs(token.KwIf) {
+	if !p.currentTokenIs(token.KwIf) {
 		p.AddError(p.currentToken(), "expected 'if'")
 		return nil
 	}
@@ -961,7 +974,7 @@ func (p *Parser) ParseIfBody(inSub bool, inFunction bool) []ast.StatementList {
 	block := make([]ast.StatementList, 0)
 
 	// read if statement lists
-	for !(p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwIf)) && !p.curTokenIs(token.KwElseIf) && !p.curTokenIs(token.KwElse) {
+	for !(p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwIf)) && !p.currentTokenIs(token.KwElseIf) && !p.currentTokenIs(token.KwElse) {
 
 		stmtList := p.ParseStatementList(inSub, inFunction)
 		if stmtList == nil {
@@ -969,7 +982,7 @@ func (p *Parser) ParseIfBody(inSub bool, inFunction bool) []ast.StatementList {
 		}
 		block = append(block, *stmtList)
 		p.nextToken()
-		if p.curTokenIs(token.EOF) {
+		if p.currentTokenIs(token.EOF) {
 			p.AddError(p.currentToken(), "expected 'end'")
 			return nil
 		}
@@ -981,7 +994,7 @@ func (p *Parser) ParseIfBody(inSub bool, inFunction bool) []ast.StatementList {
 // ParseElseIfStatement parses an else if statement.
 func (p *Parser) ParseElseIfStatement(inSub bool, inFunction bool) *ast.ElseIfStmt {
 	stmt := &ast.ElseIfStmt{ElseIfKw: p.currentToken()}
-	if !p.curTokenIs(token.KwElseIf) {
+	if !p.currentTokenIs(token.KwElseIf) {
 		p.AddError(p.currentToken(), "expected ElseIf")
 		return nil
 	}
@@ -994,14 +1007,14 @@ func (p *Parser) ParseElseIfStatement(inSub bool, inFunction bool) *ast.ElseIfSt
 		return nil
 	}
 	// look for then keyword
-	if !p.curTokenIs(token.KwThen) {
+	if !p.currentTokenIs(token.KwThen) {
 		p.AddError(p.currentToken(), "expected 'then'")
 		return nil
 	}
 	p.nextToken()
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -1020,7 +1033,7 @@ func (p *Parser) ParseElseIfBody(inSub bool, inFunction bool) []ast.StatementLis
 	block := make([]ast.StatementList, 0)
 
 	// read if statement lists
-	for !(p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwIf)) && !p.curTokenIs(token.KwElseIf) && !p.curTokenIs(token.KwElse) {
+	for !(p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwIf)) && !p.currentTokenIs(token.KwElseIf) && !p.currentTokenIs(token.KwElse) {
 
 		stmtList := p.ParseStatementList(inSub, inFunction)
 		if stmtList == nil {
@@ -1037,21 +1050,21 @@ func (p *Parser) ParseElseStatement(inSub bool, inFunction bool) []ast.Statement
 	block := make([]ast.StatementList, 0)
 
 	// expect else keyword
-	if !p.curTokenIs(token.KwElse) {
+	if !p.currentTokenIs(token.KwElse) {
 		p.AddError(p.currentToken(), "expected Else")
 		return nil
 	}
 	p.nextToken()
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
 	p.nextToken()
 
 	// read else statement lists
-	for !(p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwIf)) && !p.curTokenIs(token.KwElseIf) && !p.curTokenIs(token.KwElse) {
+	for !(p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwIf)) && !p.currentTokenIs(token.KwElseIf) && !p.currentTokenIs(token.KwElse) {
 
 		stmtList := p.ParseStatementList(inSub, inFunction)
 		if stmtList == nil {
@@ -1059,7 +1072,7 @@ func (p *Parser) ParseElseStatement(inSub bool, inFunction bool) []ast.Statement
 		}
 		block = append(block, *stmtList)
 		p.nextToken()
-		if p.curTokenIs(token.EOF) {
+		if p.currentTokenIs(token.EOF) {
 			p.AddError(p.currentToken(), "expected 'end'")
 			return nil
 		}
@@ -1074,20 +1087,20 @@ func (p *Parser) ParseElseStatement(inSub bool, inFunction bool) []ast.Statement
 
 func (p *Parser) ParseForStatement(inSub bool, inFunction bool) *ast.ForStmt {
 	stmt := &ast.ForStmt{ForKw: p.currentToken()}
-	if !p.curTokenIs(token.KwFor) {
+	if !p.currentTokenIs(token.KwFor) {
 		p.AddError(p.currentToken(), "expected For")
 		return nil
 	}
 	p.nextToken()
 
 	// if it is a variable iteration
-	if p.curTokenIs(token.Identifier) && p.peekTokenIs(1, token.Assign) {
+	if p.currentTokenIs(token.Identifier) && p.peekTokenIs(1, token.Assign) {
 		stmt.ForExpression = p.ParseForVariableStatement(inSub, inFunction)
 		if ast.IsNil(stmt.ForExpression) {
 			// p.AddError(p.currentToken(), "expected for variable iteration")
 			return nil
 		}
-	} else if p.curTokenIs(token.KwEach) {
+	} else if p.currentTokenIs(token.KwEach) {
 		stmt.ForExpression = p.ParseForEachStatement(inSub, inFunction)
 		if ast.IsNil(stmt.ForExpression) {
 			// p.AddError(p.currentToken(), "expected for each iteration")
@@ -1099,7 +1112,7 @@ func (p *Parser) ParseForStatement(inSub bool, inFunction bool) *ast.ForStmt {
 	}
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -1112,14 +1125,14 @@ func (p *Parser) ParseForStatement(inSub bool, inFunction bool) *ast.ForStmt {
 	}
 
 	// skip next keyword
-	if !p.curTokenIs(token.KwNext) {
+	if !p.currentTokenIs(token.KwNext) {
 		p.AddError(p.currentToken(), "expected 'next'")
 		return nil
 	}
 	p.nextToken()
 
 	// look optional for iteration variable
-	if p.curTokenIs(token.Identifier) {
+	if p.currentTokenIs(token.Identifier) {
 		stmt.Next = p.ParseIdentifier()
 		if stmt.Next == nil {
 			// p.AddError(p.currentToken(), "expected identifier")
@@ -1132,14 +1145,14 @@ func (p *Parser) ParseForStatement(inSub bool, inFunction bool) *ast.ForStmt {
 
 func (p *Parser) ParseForVariableStatement(inSub bool, inFunction bool) *ast.ForNextExpr {
 	stmt := &ast.ForNextExpr{}
-	if !p.curTokenIs(token.Identifier) {
+	if !p.currentTokenIs(token.Identifier) {
 		p.AddError(p.currentToken(), "expected identifier")
 		return nil
 	}
 	stmt.Variable = p.ParseIdentifier()
 
 	// skip equal sign
-	if !p.curTokenIs(token.Assign) {
+	if !p.currentTokenIs(token.Assign) {
 		p.AddError(p.currentToken(), "expected '='")
 		return nil
 	}
@@ -1153,7 +1166,7 @@ func (p *Parser) ParseForVariableStatement(inSub bool, inFunction bool) *ast.For
 	}
 
 	// skip to keyword
-	if !p.curTokenIs(token.KwTo) {
+	if !p.currentTokenIs(token.KwTo) {
 		p.AddError(p.currentToken(), "expected 'to'")
 		return nil
 	}
@@ -1167,7 +1180,7 @@ func (p *Parser) ParseForVariableStatement(inSub bool, inFunction bool) *ast.For
 	}
 
 	// look for step keyword
-	if p.curTokenIs(token.KwStep) {
+	if p.currentTokenIs(token.KwStep) {
 		p.nextToken()
 		stmt.Step = p.ParseExpression()
 		if ast.IsNil(stmt.Step) {
@@ -1181,7 +1194,7 @@ func (p *Parser) ParseForVariableStatement(inSub bool, inFunction bool) *ast.For
 
 func (p *Parser) ParseForEachStatement(inSub bool, inFunction bool) *ast.ForEachExpr {
 	stmt := &ast.ForEachExpr{}
-	if !p.curTokenIs(token.KwEach) {
+	if !p.currentTokenIs(token.KwEach) {
 		p.AddError(p.currentToken(), "expected Each")
 		return nil
 	}
@@ -1195,7 +1208,7 @@ func (p *Parser) ParseForEachStatement(inSub bool, inFunction bool) *ast.ForEach
 	}
 
 	// skip in keyword
-	if !p.curTokenIs(token.KwIn) {
+	if !p.currentTokenIs(token.KwIn) {
 		p.AddError(p.currentToken(), "expected 'in'")
 		return nil
 	}
@@ -1215,7 +1228,7 @@ func (p *Parser) ParseForBody(inSub bool, inFunction bool) []ast.StatementList {
 	block := make([]ast.StatementList, 0)
 
 	// read for statement lists
-	for !p.curTokenIs(token.KwNext) {
+	for !p.currentTokenIs(token.KwNext) {
 
 		stmtList := p.ParseStatementList(inSub, inFunction)
 		if stmtList == nil {
@@ -1223,7 +1236,7 @@ func (p *Parser) ParseForBody(inSub bool, inFunction bool) []ast.StatementList {
 		}
 		block = append(block, *stmtList)
 		p.nextToken()
-		if p.curTokenIs(token.EOF) {
+		if p.currentTokenIs(token.EOF) {
 			p.AddError(p.currentToken(), "expected 'next'")
 			return nil
 		}
@@ -1237,14 +1250,14 @@ func (p *Parser) ParseForBody(inSub bool, inFunction bool) []ast.StatementList {
 // ----------------------------------------------------------------------------
 func (p *Parser) ParseSelectStatement(inSub bool, inFunction bool) *ast.SelectStmt {
 	stmt := &ast.SelectStmt{SelectKw: p.currentToken()}
-	if !p.curTokenIs(token.KwSelect) {
+	if !p.currentTokenIs(token.KwSelect) {
 		p.AddError(p.currentToken(), "expected Select")
 		return nil
 	}
 	p.nextToken()
 
 	// skip case keyword
-	if !p.curTokenIs(token.KwCase) {
+	if !p.currentTokenIs(token.KwCase) {
 		p.AddError(p.currentToken(), "expected 'case'")
 		return nil
 	}
@@ -1258,7 +1271,7 @@ func (p *Parser) ParseSelectStatement(inSub bool, inFunction bool) *ast.SelectSt
 	}
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -1271,14 +1284,14 @@ func (p *Parser) ParseSelectStatement(inSub bool, inFunction bool) *ast.SelectSt
 	}
 
 	// skip end keyword
-	if !p.curTokenIs(token.KwEnd) {
+	if !p.currentTokenIs(token.KwEnd) {
 		p.AddError(p.currentToken(), "expected 'end'")
 		return nil
 	}
 	p.nextToken()
 
 	// skip select keyword
-	if !p.curTokenIs(token.KwSelect) {
+	if !p.currentTokenIs(token.KwSelect) {
 		p.AddError(p.currentToken(), "expected 'select'")
 		return nil
 	}
@@ -1302,14 +1315,14 @@ func (p *Parser) ParseSelectBody(inSub bool, inFunction bool) []ast.CaseStmt {
 	for {
 		stmt := &ast.CaseStmt{CaseKw: p.currentToken()}
 		// skip case keyword
-		if !p.curTokenIs(token.KwCase) {
+		if !p.currentTokenIs(token.KwCase) {
 			p.AddError(p.currentToken(), "expected 'case'")
 			return nil
 		}
 		p.nextToken()
 
 		// look for else keyword
-		if p.curTokenIs(token.KwElse) {
+		if p.currentTokenIs(token.KwElse) {
 			gotElse = true
 			p.nextToken()
 		} else {
@@ -1322,14 +1335,14 @@ func (p *Parser) ParseSelectBody(inSub bool, inFunction bool) []ast.CaseStmt {
 		}
 
 		// read end of line
-		if !p.curTokenIs(token.EOL) {
+		if !p.currentTokenIs(token.EOL) {
 			p.AddError(p.currentToken(), "expected EOL")
 			return nil
 		}
 		p.nextToken()
 
 		// read case statement lists
-		for !(p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwSelect)) && !p.curTokenIs(token.KwCase) {
+		for !(p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwSelect)) && !p.currentTokenIs(token.KwCase) {
 			stmtList := p.ParseStatementList(inSub, inFunction)
 			if stmtList == nil {
 				return nil
@@ -1340,7 +1353,7 @@ func (p *Parser) ParseSelectBody(inSub bool, inFunction bool) []ast.CaseStmt {
 		block = append(block, *stmt)
 
 		// look for end of select
-		if p.curTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwSelect) {
+		if p.currentTokenIs(token.KwEnd) && p.peekTokenIs(1, token.KwSelect) {
 			break
 		}
 		if gotElse {
@@ -1371,14 +1384,14 @@ func (p *Parser) ParseDoStatement(inSub bool, inFunction bool) ast.Statement {
 
 func (p *Parser) ParseDoWhileStatement(inSub bool, inFunction bool) *ast.WhileStmt {
 	stmt := &ast.WhileStmt{DoKw: p.currentToken()}
-	if !p.curTokenIs(token.KwDo) {
+	if !p.currentTokenIs(token.KwDo) {
 		p.AddError(p.currentToken(), "expected Do")
 		return nil
 	}
 	p.nextToken()
 
 	// read while keyword
-	if !p.curTokenIs(token.KwWhile) {
+	if !p.currentTokenIs(token.KwWhile) {
 		p.AddError(p.currentToken(), "expected 'while'")
 		return nil
 	}
@@ -1392,7 +1405,7 @@ func (p *Parser) ParseDoWhileStatement(inSub bool, inFunction bool) *ast.WhileSt
 	}
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -1405,7 +1418,7 @@ func (p *Parser) ParseDoWhileStatement(inSub bool, inFunction bool) *ast.WhileSt
 	}
 
 	// skip loop keyword
-	if !p.curTokenIs(token.KwLoop) {
+	if !p.currentTokenIs(token.KwLoop) {
 		p.AddError(p.currentToken(), "expected 'loop'")
 		return nil
 	}
@@ -1415,14 +1428,14 @@ func (p *Parser) ParseDoWhileStatement(inSub bool, inFunction bool) *ast.WhileSt
 
 func (p *Parser) ParseDoUntilStatement(inSub bool, inFunction bool) *ast.UntilStmt {
 	stmt := &ast.UntilStmt{DoKw: p.currentToken()}
-	if !p.curTokenIs(token.KwDo) {
+	if !p.currentTokenIs(token.KwDo) {
 		p.AddError(p.currentToken(), "expected Do")
 		return nil
 	}
 	p.nextToken()
 
 	// read until keyword
-	if !p.curTokenIs(token.KwUntil) {
+	if !p.currentTokenIs(token.KwUntil) {
 		p.AddError(p.currentToken(), "expected 'until'")
 		return nil
 	}
@@ -1436,7 +1449,7 @@ func (p *Parser) ParseDoUntilStatement(inSub bool, inFunction bool) *ast.UntilSt
 	}
 
 	// look for end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -1449,7 +1462,7 @@ func (p *Parser) ParseDoUntilStatement(inSub bool, inFunction bool) *ast.UntilSt
 	}
 
 	// skip loop keyword
-	if !p.curTokenIs(token.KwLoop) {
+	if !p.currentTokenIs(token.KwLoop) {
 		p.AddError(p.currentToken(), "expected 'loop'")
 		return nil
 	}
@@ -1462,14 +1475,14 @@ func (p *Parser) ParseDoLoopStatement(inSub bool, inFunction bool) ast.Statement
 	var stmt ast.Statement
 	tok := p.currentToken()
 	// read do keyword
-	if !p.curTokenIs(token.KwDo) {
+	if !p.currentTokenIs(token.KwDo) {
 		p.AddError(p.currentToken(), "expected Do")
 		return nil
 	}
 	p.nextToken()
 
 	// read end of line
-	if !p.curTokenIs(token.EOL) {
+	if !p.currentTokenIs(token.EOL) {
 		p.AddError(p.currentToken(), "expected EOL")
 		return nil
 	}
@@ -1483,14 +1496,14 @@ func (p *Parser) ParseDoLoopStatement(inSub bool, inFunction bool) ast.Statement
 	}
 
 	// skip loop keyword
-	if !p.curTokenIs(token.KwLoop) {
+	if !p.currentTokenIs(token.KwLoop) {
 		p.AddError(p.currentToken(), "expected 'loop'")
 		return nil
 	}
 	p.nextToken()
 
 	// determine type of loop
-	if p.curTokenIs(token.KwWhile) {
+	if p.currentTokenIs(token.KwWhile) {
 		stmt = &ast.DoWhileStmt{DoKw: tok, Body: body}
 		p.nextToken()
 		stmtDo := stmt.(*ast.DoWhileStmt)
@@ -1500,7 +1513,7 @@ func (p *Parser) ParseDoLoopStatement(inSub bool, inFunction bool) ast.Statement
 			// p.AddError(p.currentToken(), "expected expression")
 			return nil
 		}
-	} else if p.curTokenIs(token.KwUntil) {
+	} else if p.currentTokenIs(token.KwUntil) {
 		p.nextToken()
 		stmt = &ast.DoUntilStmt{DoKw: tok, Body: body}
 		stmtDo := stmt.(*ast.DoUntilStmt)
@@ -1519,14 +1532,14 @@ func (p *Parser) ParseDoLoopStatement(inSub bool, inFunction bool) ast.Statement
 
 func (p *Parser) ParseDoBody(inSub bool, inFunction bool) []ast.StatementList {
 	block := make([]ast.StatementList, 0)
-	for !(p.curTokenIs(token.KwLoop)) {
+	for !(p.currentTokenIs(token.KwLoop)) {
 		stmtList := p.ParseStatementList(inSub, inFunction)
 		if stmtList == nil {
 			return nil
 		}
 		block = append(block, *stmtList)
 		p.nextToken()
-		if p.curTokenIs(token.EOF) {
+		if p.currentTokenIs(token.EOF) {
 			p.AddError(p.currentToken(), "expected 'Loop'")
 			return nil
 		}
@@ -1544,7 +1557,7 @@ func (p *Parser) ParseSubroutineCall() *ast.CallSubStmt {
 	stmt := &ast.CallSubStmt{}
 
 	// expect call keyword
-	if !p.curTokenIs(token.KwCall) {
+	if !p.currentTokenIs(token.KwCall) {
 		p.AddError(p.currentToken(), "expected Call")
 		return nil
 	}
@@ -1565,6 +1578,82 @@ func (p *Parser) ParseSubroutineCall() *ast.CallSubStmt {
 // Error handling
 // ----------------------------------------------------------------------------
 
+func (p *Parser) ParseJOnErrorJumpStatement() *ast.JumpStmt {
+	stmt := &ast.JumpStmt{JumpKw: p.currentToken()}
+	// expect on error keywords
+	if !p.currentTokenIs(token.KwOn) {
+		p.AddError(p.currentToken(), "expected On")
+		return nil
+	}
+	p.nextToken()
+	if !p.currentTokenIs(token.KwError) {
+		p.AddError(p.currentToken(), "expected Error")
+		return nil
+	}
+	p.nextToken()
+	stmt.OnError = true
+
+	// expect either goto or resume keywords
+	if !p.currentTokenIs(token.KwGoto) && !p.currentTokenIs(token.KwResume) {
+		p.AddError(p.currentToken(), "expected Goto or Resume")
+		return nil
+	}
+	stmt.JumpKw = p.currentToken()
+	p.nextToken()
+
+	// expect identifier, Number or Next keyword
+	if p.currentTokenIs(token.Identifier) {
+		stmt.Label = p.ParseIdentifier()
+		if stmt.Label == nil {
+			p.AddError(p.currentToken(), "expected identifier")
+			return nil
+		}
+
+	} else if p.currentTokenIs(token.KwNext) {
+		stmt.NextKw = p.currentToken()
+		p.nextToken()
+	} else if p.currentTokenIs(token.LongLit) {
+		stmt.Number = p.currentToken()
+		p.nextToken()
+	} else {
+		p.AddError(p.currentToken(), "expected identifier or Next")
+		return nil
+	}
+
+	// check for invalid combiantion of Goto and Next
+	if stmt.JumpKw.Kind == token.KwGoto && stmt.NextKw != nil {
+		p.AddError(p.currentToken(), "invalid combination of Goto and Next")
+		return nil
+	}
+	return stmt
+}
+
+func (p *Parser) ParseResumeStatement() *ast.JumpStmt {
+	stmt := &ast.JumpStmt{JumpKw: p.currentToken()}
+	// expect resume keyword
+	if !p.currentTokenIs(token.KwResume) {
+		p.AddError(p.currentToken(), "expected Resume")
+		return nil
+	}
+	p.nextToken()
+
+	// expect either identifier or Next keyword
+	if p.currentTokenIs(token.Identifier) {
+		stmt.Label = p.ParseIdentifier()
+		if stmt.Label == nil {
+			p.AddError(p.currentToken(), "expected identifier")
+			return nil
+		}
+	} else if p.currentTokenIs(token.KwNext) {
+		stmt.NextKw = p.currentToken()
+		p.nextToken()
+	} else {
+		p.AddError(p.currentToken(), "expected identifier or Next")
+		return nil
+	}
+	return stmt
+}
+
 // ----------------------------------------------------------------------------
 // Special statement
 // ----------------------------------------------------------------------------
@@ -1578,7 +1667,7 @@ func (p *Parser) ParseSpecialStatement() ast.Statement {
 		return stmt
 	case token.KwResume:
 		p.nextToken()
-		if p.curTokenIs(token.KwNext) {
+		if p.currentTokenIs(token.KwNext) {
 			stmt.Keyword2 = p.peekToken(1).Literal
 			p.nextToken()
 		} else {
@@ -1586,7 +1675,7 @@ func (p *Parser) ParseSpecialStatement() ast.Statement {
 			stmt.Args = append(stmt.Args, p.ParseIdentifier())
 		}
 		return stmt
-	case token.KwGoto, token.KwErase:
+	case token.KwErase:
 		p.nextToken()
 		stmt.Args = append(stmt.Args, p.ParseIdentifier())
 		return stmt
@@ -1602,7 +1691,7 @@ func (p *Parser) ParseSpecialStatement() ast.Statement {
 		return stmt
 	case token.Identifier:
 		if p.peekTokenIs(1, token.Colon) && p.peekTokenIs(2, token.EOL) {
-			return p.ParseLabelStatement()
+			return p.ParseLabelDecl()
 		} else if strings.ToLower(p.currentToken().Literal) == "debug" &&
 			p.peekToken(1).Kind == token.Dot &&
 			strings.ToLower(p.peekToken(2).Literal) == "print" {
@@ -1640,7 +1729,7 @@ func (p *Parser) ParsePrintStatement() *ast.SpecialStmt {
 	}
 
 	// read expression if not empty
-	if !p.curTokenIs(token.Semicolon) && !p.curTokenIs(token.EOL) && !p.curTokenIs(token.EOF) {
+	if !p.currentTokenIs(token.Semicolon) && !p.currentTokenIs(token.EOL) && !p.currentTokenIs(token.EOF) {
 		for {
 			expr := p.ParseExpression()
 			if expr == nil {
@@ -1649,14 +1738,14 @@ func (p *Parser) ParsePrintStatement() *ast.SpecialStmt {
 			stmt.Args = append(stmt.Args, expr)
 
 			// look for a comma to see if there are more expressions
-			if !p.curTokenIs(token.Comma) {
+			if !p.currentTokenIs(token.Comma) {
 				break
 			}
 			p.nextToken() // skip the comma
 		}
 	}
 	// if last character is a semicolon, add it to the statement
-	if p.curTokenIs(token.Semicolon) {
+	if p.currentTokenIs(token.Semicolon) {
 		stmt.Semicolon = p.currentToken()
 		p.nextToken()
 	}
@@ -1684,7 +1773,7 @@ func (p *Parser) ParseMsgBoxStatement() *ast.SpecialStmt {
 		stmt.Args = append(stmt.Args, expr)
 
 		// look for a comma to see if there are more expressions
-		if !p.curTokenIs(token.Comma) {
+		if !p.currentTokenIs(token.Comma) {
 			break
 		}
 		p.nextToken() // skip the comma
@@ -1719,7 +1808,7 @@ func (p *Parser) ParseInputStatement() *ast.SpecialStmt {
 		stmt.Args = append(stmt.Args, expr)
 
 		// look for a comma to see if there are more expressions
-		if !p.curTokenIs(token.Comma) {
+		if !p.currentTokenIs(token.Comma) {
 			break
 		}
 		p.nextToken() // skip the comma
@@ -1727,19 +1816,23 @@ func (p *Parser) ParseInputStatement() *ast.SpecialStmt {
 	return stmt
 }
 
-func (p *Parser) ParseLabelStatement() *ast.LabelDecl {
-	stmt := &ast.LabelDecl{}
-	stmt.LabelName = p.ParseIdentifier()
-	if stmt.LabelName == nil {
+func (p *Parser) ParseLabelDecl() *ast.JumpLabelDecl {
+	stmt := &ast.JumpLabelDecl{}
+	stmt.Label = p.ParseIdentifier()
+	if stmt.Label == nil {
 		p.AddError(p.currentToken(), "expected identifier")
 		return nil
 	}
-	p.nextToken()
-	if !p.curTokenIs(token.Colon) {
+	if !p.currentTokenIs(token.Colon) {
 		p.AddError(p.currentToken(), "expected colon")
 		return nil
 	}
 	p.nextToken()
+
+	if !p.currentTokenIs(token.EOL) && !p.peekTokenIs(1, token.EOF) {
+		p.AddError(p.currentToken(), "expected EOL or EOF")
+		return nil
+	}
 	return stmt
 }
 
@@ -1751,7 +1844,7 @@ func (p *Parser) ParseExpressionStatement() *ast.ExprStmt {
 	stmt := &ast.ExprStmt{}
 
 	// skip let keyword
-	if !p.curTokenIs(token.KwLet) {
+	if !p.currentTokenIs(token.KwLet) {
 		p.AddError(p.currentToken(), "expected Let")
 		return nil
 	}
@@ -1785,7 +1878,7 @@ func (p *Parser) ParseExpression2R() ast.Expression {
 	}
 
 	// check if it is an assignment
-	if p.curTokenIs(token.Assign) {
+	if p.currentTokenIs(token.Assign) {
 		assignment := ast.BinaryExpr{}
 		assignment.Left = expr
 		assignment.OpKind = token.Assign
@@ -1808,7 +1901,7 @@ func (p *Parser) ParseExpression2R() ast.Expression {
 func (p *Parser) ParseExpression3L() ast.Expression {
 	expr := p.ParseExpression5L()
 	if expr != nil {
-		for p.curTokenIs(token.Or) {
+		for p.currentTokenIs(token.Or) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression5L()
@@ -1829,7 +1922,7 @@ func (p *Parser) ParseExpression3L() ast.Expression {
 func (p *Parser) ParseExpression5L() ast.Expression {
 	expr := p.ParseExpression9L()
 	if expr != nil {
-		for p.curTokenIs(token.And) {
+		for p.currentTokenIs(token.And) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression9L()
@@ -1851,7 +1944,7 @@ func (p *Parser) ParseExpression5L() ast.Expression {
 func (p *Parser) ParseExpression9L() ast.Expression {
 	expr := p.ParseExpression10L()
 	if expr != nil {
-		for p.curTokenIs(token.Eq) || p.curTokenIs(token.Neq) {
+		for p.currentTokenIs(token.Eq) || p.currentTokenIs(token.Neq) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression10L()
@@ -1875,7 +1968,7 @@ func (p *Parser) ParseExpression9L() ast.Expression {
 func (p *Parser) ParseExpression10L() ast.Expression {
 	expr := p.ParseExpression12L()
 	if expr != nil {
-		for p.curTokenIs(token.Lt) || p.curTokenIs(token.Gt) || p.curTokenIs(token.Le) || p.curTokenIs(token.Ge) {
+		for p.currentTokenIs(token.Lt) || p.currentTokenIs(token.Gt) || p.currentTokenIs(token.Le) || p.currentTokenIs(token.Ge) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression12L()
@@ -1898,7 +1991,7 @@ func (p *Parser) ParseExpression10L() ast.Expression {
 func (p *Parser) ParseExpression12L() ast.Expression {
 	expr := p.ParseExpression13L()
 	if expr != nil {
-		for p.curTokenIs(token.Add) || p.curTokenIs(token.Concat) || p.curTokenIs(token.Minus) {
+		for p.currentTokenIs(token.Add) || p.currentTokenIs(token.Concat) || p.currentTokenIs(token.Minus) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression13L()
@@ -1922,7 +2015,7 @@ func (p *Parser) ParseExpression12L() ast.Expression {
 func (p *Parser) ParseExpression13L() ast.Expression {
 	expr := p.ParseExpression14L()
 	if expr != nil {
-		for p.curTokenIs(token.Mul) || p.curTokenIs(token.Mod) || p.curTokenIs(token.Div) || p.curTokenIs(token.IntDiv) {
+		for p.currentTokenIs(token.Mul) || p.currentTokenIs(token.Mod) || p.currentTokenIs(token.Div) || p.currentTokenIs(token.IntDiv) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression14L()
@@ -1943,7 +2036,7 @@ func (p *Parser) ParseExpression13L() ast.Expression {
 func (p *Parser) ParseExpression14L() ast.Expression {
 	expr := p.ParseExpression15()
 	if expr != nil {
-		for p.curTokenIs(token.Exponent) {
+		for p.currentTokenIs(token.Exponent) {
 			tok := p.currentToken()
 			p.nextToken()
 			right := p.ParseExpression15()
@@ -1963,7 +2056,7 @@ func (p *Parser) ParseExpression14L() ast.Expression {
 //	| "-" Expr16
 //	| "Not" Expr16
 func (p *Parser) ParseExpression15() ast.Expression {
-	if p.curTokenIs(token.Minus) || p.curTokenIs(token.Not) {
+	if p.currentTokenIs(token.Minus) || p.currentTokenIs(token.Not) {
 		expr := &ast.UnaryExpr{OpKind: p.currentToken().Kind, OpToken: p.currentToken()}
 		p.nextToken()
 		right := p.ParseExpression16()
@@ -1983,7 +2076,7 @@ func (p *Parser) ParseExpression15() ast.Expression {
 //	| long_lit
 //	| double_lit
 //	| string_lit
-//	| dateTime_lit
+//	| dateLit
 //	| "True"
 //	| "False"
 //	| "Nothing"
@@ -2007,7 +2100,7 @@ func (p *Parser) ParseExpression16() ast.Expression {
 // ParenExpr
 func (p *Parser) ParseParenExpr() *ast.ParenExpr {
 	expr := &ast.ParenExpr{Lparen: p.currentToken()}
-	if !p.curTokenIs(token.Lparen) {
+	if !p.currentTokenIs(token.Lparen) {
 		p.AddError(p.currentToken(), "expected left parenthesis")
 		return nil
 	}
@@ -2017,7 +2110,7 @@ func (p *Parser) ParseParenExpr() *ast.ParenExpr {
 		// p.AddError(p.currentToken(), "expected expression")
 		return nil
 	}
-	if !p.curTokenIs(token.Rparen) {
+	if !p.currentTokenIs(token.Rparen) {
 		p.AddError(p.currentToken(), "expected right parenthesis")
 		return nil
 	}
@@ -2036,14 +2129,14 @@ func (p *Parser) ParseArrayOrSubroutineCall(identifier *ast.Identifier) *ast.Cal
 		return nil
 	}
 	// look for parenthesis
-	if p.curTokenIs(token.Lparen) {
+	if p.currentTokenIs(token.Lparen) {
 		expr.Lparen = p.currentToken()
 		p.nextToken()
 	} else {
 		return nil
 	}
 	// read arguments
-	for !p.curTokenIs(token.Rparen) {
+	for !p.currentTokenIs(token.Rparen) {
 
 		arg := p.ParseExpression()
 		if arg == nil {
@@ -2052,16 +2145,16 @@ func (p *Parser) ParseArrayOrSubroutineCall(identifier *ast.Identifier) *ast.Cal
 		}
 		expr.Args = append(expr.Args, arg)
 		// look for a comma to see if there are more arguments
-		if p.curTokenIs(token.Comma) {
+		if p.currentTokenIs(token.Comma) {
 			p.nextToken() // skip the comma
 		}
-		if p.curTokenIs(token.EOF) {
+		if p.currentTokenIs(token.EOF) {
 			p.AddError(p.currentToken(), "expected right parenthesis")
 			return nil
 		}
 	}
 	// get right parenthesis
-	if !p.curTokenIs(token.Rparen) {
+	if !p.currentTokenIs(token.Rparen) {
 		p.AddError(p.currentToken(), "expected right parenthesis")
 		return nil
 	}
@@ -2092,7 +2185,7 @@ func (p *Parser) ParsePrimaryExpr() ast.Expression {
 	}
 
 	// check if we have a dot
-	if p.curTokenIs(token.Dot) {
+	if p.currentTokenIs(token.Dot) {
 		memberAccess := ast.CallSelectorExpr{}
 		memberAccess.Root = expr
 		memberAccess.Dot = p.currentToken().Position

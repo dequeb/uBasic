@@ -7,8 +7,8 @@ import (
 	"uBasic/types"
 )
 
-// newType returns a new type equivalent to the given type node.
-func newType(n Node) (types.Type, error) {
+// NewType returns a new type equivalent to the given type node.
+func NewType(n Node) (types.Type, error) {
 	switch n := n.(type) {
 	case *ClassDecl:
 		var err error
@@ -17,22 +17,22 @@ func newType(n Node) (types.Type, error) {
 		for _, member := range n.Members {
 			switch member := member.(type) {
 			case *SubDecl:
-				typ.Members[member.SubName.Name], err = newType(member.SubType)
+				typ.Members[member.SubName.Name], err = NewType(member.SubType)
 				if err != nil {
 					return nil, err
 				}
 			case *FuncDecl:
-				typ.Members[member.FuncName.Name], err = newType(member.FuncType)
+				typ.Members[member.FuncName.Name], err = NewType(member.FuncType)
 				if err != nil {
 					return nil, err
 				}
 			case *ScalarDecl:
-				typ.Members[member.VarName.Name], err = newType(member.VarType)
+				typ.Members[member.VarName.Name], err = NewType(member.VarType)
 				if err != nil {
 					return nil, err
 				}
 			case *ArrayDecl:
-				typ.Members[member.VarName.Name], err = newType(member.VarType)
+				typ.Members[member.VarName.Name], err = NewType(member.VarType)
 				if err != nil {
 					return nil, err
 				}
@@ -74,7 +74,7 @@ func newType(n Node) (types.Type, error) {
 		if n.Result == nil {
 			return nil, nil
 		}
-		if typ, err := newType(n.Result); err != nil {
+		if typ, err := NewType(n.Result); err != nil {
 			return nil, err
 		} else {
 			return &types.Func{Result: typ, Params: params}, nil
@@ -97,17 +97,17 @@ func newType(n Node) (types.Type, error) {
 		return n.Decl.Type()
 	case *ParamItem:
 		if n.IsArray {
-			typ, err := newType(n.VarType)
+			typ, err := NewType(n.VarType)
 			if err != nil {
 				return nil, err
 			}
 			array := &types.Array{Type: typ}
 			return array, nil
 		} else {
-			return newType(n.VarType)
+			return NewType(n.VarType)
 		}
 	case *ArrayType:
-		typ, err := newType(n.Type)
+		typ, err := NewType(n.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -151,11 +151,11 @@ func newType(n Node) (types.Type, error) {
 		return array, nil
 	case *BinaryExpr:
 		// Check that the operand types are compatible with the operator.
-		typX, err := newType(n.Left)
+		typX, err := NewType(n.Left)
 		if err != nil {
 			return nil, err
 		}
-		typY, err := newType(n.Right)
+		typY, err := NewType(n.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +174,7 @@ func newType(n Node) (types.Type, error) {
 			return nil, errors.Newf(n.Token().Position, "support for operator %q not yet implemented", n.OpKind)
 		}
 	case *UnaryExpr:
-		return newType(n.Right)
+		return NewType(n.Right)
 	case *CallOrIndexExpr:
 		typ, err := n.Identifier.Decl.Type()
 		if err != nil {
@@ -320,6 +320,7 @@ const (
 	DoublePrecision
 	DatePrecision
 	StringPrecision
+	EnumPrecision
 	ErrorPrecision // error flag
 )
 
@@ -394,7 +395,8 @@ func GetPrecisionOrder(typ types.BasicKind) int {
 		return VariantPrecision
 	case types.String:
 		return StringPrecision
-
+	case types.Enum:
+		return EnumPrecision
 	}
 	return ErrorPrecision
 

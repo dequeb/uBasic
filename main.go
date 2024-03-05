@@ -4,161 +4,55 @@ import (
 	"log"
 	"os"
 
+	"uBasic/exec"
 	"uBasic/ide"
 
 	"gioui.org/app"
 )
 
-// type DebugCommand int
-
-// const (
-// 	Continue DebugCommand = iota
-// 	Step
-// )
-
-// type debuger struct {
-// 	// line number
-// 	breakpoints   []bool
-// 	Env           *object.Environment
-// 	LastCommand   DebugCommand
-// 	ContinueCount int
-// 	source        *source.Source
-// 	File          *ast.File
-// }
-
-// var debug debuger
-
-// const prompt = "?: Display this line,  E: environnement, C: continue, D: Display, S: step, B: Breakpoint, Q: quit >>"
-
-// func callback(node ast.Node) bool {
-// 	needToStop := false
-// 	// check if we have a breakpoint
-// 	if node != nil && node.Token() != nil {
-// 		// check if we have a breakpoint
-// 		needToStop = debug.breakpoints[node.Token().Position.Line]
-// 	}
-
-// 	// check if we have a command
-// 	if debug.LastCommand == Step {
-// 		needToStop = true
-// 	}
-
-// 	for needToStop {
-// 		// display current line
-// 		// fmt.Printf("% 4d: %s", node.Token().Position.Line, debug.source.Line(node.Token().Position))
-// 		line := debug.source.Line(node.Token().Position)
-// 		line = strings.Trim(line, "\n\r")
-// 		lineNumber := node.Token().Position.Line
-// 		fmt.Printf("% 3d: %s", lineNumber, line)
-
-// 		response := ""
-// 		fmt.Scanln(&response)
-// 		response = strings.ToUpper(response)
-// 		if len(response) == 0 {
-// 			response = "S" // enter by default will step
-// 		}
-
-// 		// return false to stop, true to continue
-// 		switch response[0] {
-// 		case '?':
-// 			fmt.Print(prompt)
-// 		case 'E':
-// 			fmt.Println(debug.Env.String())
-// 		case 'C':
-// 			debug.LastCommand = Continue
-// 			return true
-// 		case 'D':
-// 			fmt.Println(debug.source.WithLineNumbers())
-// 		case 'B':
-// 			line := 0
-
-// 			if len(response) > 1 {
-// 				fmt.Sscanf(response[1:], "%d", &line)
-// 				debug.breakpoints[line] = true
-// 			} else {
-// 				fmt.Println("Enter the line number")
-// 				fmt.Scanln(&line)
-// 				debug.breakpoints[line] = true
-// 			}
-// 		case 'S':
-// 			debug.LastCommand = Step
-// 			return true
-// 		case 'Q':
-// 			debug.LastCommand = Continue
-// 			return false
-// 		}
-// 	}
-// 	return true // continue
-// }
-
-// func (d *debuger) LoadInterpreter(fileName string) error {
-// 	// read the file content
-// 	filebytes, err := os.ReadFile(fileName)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	input := string(filebytes)
-
-// 	// read the file into the interpreter
-// 	l := lexer.New(input)
-// 	p := parser.New(l)
-// 	file := p.ParseFile()
-// 	src := &source.Source{Input: input, Name: "filename"}
-// 	if file == nil {
-// 		for _, err := range p.Errors() {
-// 			e := err.(*errors.Error)
-// 			e.Src = src
-// 			fmt.Println(err)
-// 		}
-// 	} else {
-// 		info, err := sem.Check(file)
-// 		if err != nil {
-// 			e := err.(*errors.Error)
-// 			e.Src = src
-// 			fmt.Println(err)
-// 		} else {
-// 			file.Name = fileName
-// 			d.Env = eval.Define(info)
-// 			d.breakpoints = make([]bool, 100)
-// 			d.LastCommand = Step // start with a step
-// 			d.File = file
-// 			d.source = &source.Source{Input: input, Name: fileName}
-// 			return nil
-// 		}
-// 	}
-// 	return fmt.Errorf("error in file %s", fileName)
-// }
-
-// func main() {
-// 	// read command line to get the file name
-// 	if len(os.Args) > 1 {
-
-// 		fileName := os.Args[1]
-// 		// fileName := "testdata/samples/fibo.bas"
-// 		// read the file into the interpreter
-// 		err := debug.LoadInterpreter(fileName)
-// 		if err != nil {
-// 			fmt.Println(err)
-// 		} else {
-// 			fmt.Println(prompt)
-// 			// run the interpreter
-// 			eval.Run(debug.File, debug.Env, callback)
-// 		}
-// 	} else {
-// 		fmt.Println("Usage: uBasic filename")
-// 	}
-
-// }
+// to call rtllib as a dynamic library
+// https://www.ardanlabs.com/blog/2013/08/using-c-dynamic-libraries-in-go-programs.html
+// remove the first level of comment to use the following code
+//
+// /* ----- add # before each three lines below -------
+// cgo CFLAGS: -I../DyLib
+// cgo LDFLAGS: -L. -lname of the library
+// include <name of the library.h>
+// */
+// import "C"
+// functions from the library can be called using C.functionName()
+// than read:
+// 		http://golang.org/cmd/cgo/
+// 		http://golang.org/doc/articles/c_go_cgo.html
 
 func main() {
-	d := ide.Debugger{}
+	var err error
+	if len(os.Args) > 1 {
+		err = exec.LoadInterpreter(os.Args[1])
+	} else {
+		// err = exec.LoadInterpreter("testdata/noisy/simple/sim07.bas")
+		err = exec.LoadInterpreter("testdata/noisy/advanced/primes.bas")
+		// err = exec.LoadInterpreter("testdata/samples/error01.bas")
+		// err = exec.LoadInterpreter("testdata/test color.bas")
+		// err = exec.LoadInterpreter("testdata/incorrect/parser/pe17.bas")
+	}
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	go func() {
 		w := app.NewWindow()
-		err := d.Run(w)
+		err := ide.Run(w)
 		if err != nil {
 			log.Fatal(err)
 		}
 		os.Exit(0)
+	}()
+	go func() {
+		if err := exec.Debug.Run(); err != nil {
+			exec.Debug.Terminal.WriteString(err.Error())
+		}
 	}()
 	app.Main()
 }

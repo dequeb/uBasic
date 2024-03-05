@@ -2,6 +2,7 @@ package eval
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
@@ -15,14 +16,16 @@ import (
 
 const returnName = "result!"
 
-func Define(info *sem.Info) *object.Environment {
+func Define(info *sem.Info, termIn io.Reader, termOut io.Writer) *object.Environment {
 	env := object.NewEnvironment()
+	rtlib.Init(&rtlib.Terminal{In: termIn, Out: termOut})
+
 	scopes := info.Scopes
 	for _, s := range scopes {
 		for k, v := range s.Outer.Decls {
 			switch v := v.(type) {
 			case *ast.ScalarDecl:
-				env.Set(k, evalScalarDecl(v, env))
+				env.Set(k, evalScalarDecl(v))
 			case *ast.ArrayDecl:
 				env.Set(k, evalArrayDecl(v, env))
 			case *ast.ConstDeclItem:
@@ -30,7 +33,7 @@ func Define(info *sem.Info) *object.Environment {
 			case *ast.EnumDecl:
 				env.Set(k, evalEnumDecl(v, env))
 			case *ast.TypeDef:
-				env.Set(k, evalTypeDef(v, env))
+				env.Set(k, evalTypeDef(v))
 			case *ast.FuncDecl:
 				env.Set(k, evalFuncDecl(v, env))
 			case *ast.SubDecl:
@@ -45,20 +48,23 @@ func Define(info *sem.Info) *object.Environment {
 	return env.Extend()
 }
 
-var callBack func(ast.Node) bool
+var callBack func(ast.Node, *object.Environment) bool
+var ErrorHandler *ast.JumpStmt = nil // when active, set to the node that will handle errors
 var currentLine int
 
-func Run(file *ast.File, env *object.Environment, f func(ast.Node) bool) object.Object {
+func Run(file *ast.File, env *object.Environment, f func(ast.Node, *object.Environment) bool) object.Object {
 	callBack = f
 	return Eval(nil, file, env)
 }
 
 func Eval(class *object.Class, node ast.Node, env *object.Environment) object.Object {
+	env.From = node
+
 	if callBack != nil {
 		// only call back on node with token (for line number)
-		if node.Token() != nil && node.Token().Position.Line != currentLine {
+		if node.Token() != nil && node.Token().Position.Line != currentLine && node.Token().Position.Line > 0 {
 			currentLine = node.Token().Position.Line
-			if !callBack(node) {
+			if !callBack(node, env) {
 				return &object.Exit{}
 			}
 		}
@@ -66,7 +72,7 @@ func Eval(class *object.Class, node ast.Node, env *object.Environment) object.Ob
 
 	switch node := node.(type) {
 	case *ast.BasicLit:
-		return evalBasicLit(node, env)
+		return evalBasicLit(node)
 	case *ast.File:
 		return evalFile(node, env)
 	case *ast.StatementList:
@@ -80,7 +86,7 @@ func Eval(class *object.Class, node ast.Node, env *object.Environment) object.Ob
 	case *ast.ArrayDecl:
 		return evalArrayDecl(node, env)
 	case *ast.ScalarDecl:
-		return evalScalarDecl(node, env)
+		return evalScalarDecl(node)
 	case *ast.DimDecl:
 		return evalDimDecl(node, env)
 	case *ast.ConstDecl:
@@ -90,11 +96,11 @@ func Eval(class *object.Class, node ast.Node, env *object.Environment) object.Ob
 	case *ast.EnumDecl:
 		return evalEnumDecl(node, env)
 	case *ast.TypeDef:
-		return evalTypeDef(node, env)
+		return evalTypeDef(node)
 	case *ast.ExprStmt:
 		return evalExprStmt(node, env)
 	case *ast.EmptyStmt:
-		return evalEmptyStmt(node, env)
+		return nil
 	case *ast.IfStmt:
 		return evalIfStmt(node, env)
 	case *ast.WhileStmt:
@@ -129,12 +135,18 @@ func Eval(class *object.Class, node ast.Node, env *object.Environment) object.Ob
 		return evalFinishedForEachExpr(node, env)
 	case *ast.SelectStmt:
 		return evalSelectStmt(node, env)
+	case *ast.JumpLabelDecl:
+		return nil
+	case *ast.JumpStmt:
+		return evalJumpStmt(node)
+	case *ast.Comment:
+		return nil
 	default:
 		return object.NewError(node.Token().Position, "unknown node type: "+node.String())
 	}
 }
 
-func evalBasicLit(node *ast.BasicLit, env *object.Environment) object.Object {
+func evalBasicLit(node *ast.BasicLit) object.Object {
 	switch node.Kind {
 	case token.LongLit:
 		str := node.Value.(string)
@@ -177,24 +189,96 @@ func evalBasicLit(node *ast.BasicLit, env *object.Environment) object.Object {
 }
 
 func evalFile(node *ast.File, env *object.Environment) object.Object {
-	return evalBody(node.StatementLists, env)
+	return evalBody(node.StatementLists, env, "")
 }
 
-func evalBody(node []ast.StatementList, env *object.Environment) object.Object {
-	var result object.Object
+var errorActive = false
 
-	for _, stmtList := range node {
-		result = Eval(nil, &stmtList, env)
-		if result != nil {
-			switch result := result.(type) {
-			case *object.Error:
-				result.Stack.Push(stmtList.Token().Position)
-				return result
-			case *object.ReturnValue:
-				return result.Value
-			case *object.Exit:
-				return result
+func evalBody(node []ast.StatementList, env *object.Environment, jumpLabel string) object.Object {
+	var result object.Object
+	var jumpLabelActive bool = len(jumpLabel) > 0
+
+	for {
+	restart:
+		labelfound := false
+		for _, stmtList := range node {
+			// skip statments until we find the label
+			if jumpLabelActive {
+				if len(stmtList.Statements) > 0 {
+					label, ok := stmtList.Statements[0].(*ast.JumpLabelDecl)
+					if ok && strings.EqualFold(label.Label.Name, jumpLabel) {
+						jumpLabelActive = false
+						labelfound = true
+					}
+				}
+				continue
 			}
+			// execute the statement list
+			result = Eval(nil, &stmtList, env)
+
+			// check for errors
+			if result != nil {
+				switch result := result.(type) {
+				case *object.Resume:
+					if ErrorHandler != nil && ErrorHandler.JumpKw.Kind == token.KwGoto {
+						if result.Label == "" {
+							if errorActive {
+								errorActive = false
+								return result
+							}
+							continue
+						}
+						jumpLabelActive = true
+						jumpLabel = result.Label
+						goto restart // exit to first loop
+					}
+
+				case *object.Error:
+					if ErrorHandler != nil {
+						// do we resume next?
+						if ErrorHandler.JumpKw.Kind == token.KwResume && ErrorHandler.NextKw != nil {
+							continue
+						}
+						// do we resume to label
+						if ErrorHandler.JumpKw.Kind == token.KwResume && ErrorHandler.Label != nil {
+							jumpLabelActive = true
+							jumpLabel = ErrorHandler.Label.Name
+							goto restart // exit to first loop
+						}
+						// we have to goto a label, but we need to be ready to resume next
+						// so we need to find the label
+						if ErrorHandler.JumpKw.Kind == token.KwGoto {
+							errorActive = true
+							result2 := evalBody(node, env, ErrorHandler.Label.Name)
+							if result2 != nil {
+								switch result2 := result2.(type) {
+								case *object.Error:
+									return nil // ignore error
+								case *object.ReturnValue, *object.Exit:
+									return result2
+								case *object.Resume:
+									if result2.Label == "" {
+										continue // resume next
+									}
+									jumpLabelActive = true
+									jumpLabel = result2.Label
+									goto restart // exit to first loop
+								}
+							}
+						}
+					}
+					result.Stack.Push(stmtList.Token().Position)
+					return result
+				case *object.ReturnValue, *object.Exit:
+					return result
+				}
+			}
+		}
+		if jumpLabelActive && !labelfound {
+			return object.NewResume(jumpLabel, node[0].Token().Position)
+		}
+		if !jumpLabelActive {
+			break
 		}
 	}
 	return result
@@ -206,7 +290,7 @@ func evalStatementList(node *ast.StatementList, env *object.Environment) object.
 		result = Eval(nil, stmt, env)
 		if result != nil {
 			switch result := result.(type) {
-			case *object.Error, *object.ReturnValue, *object.Exit:
+			case *object.Error, *object.ReturnValue, *object.Exit, *object.Resume:
 				return result
 			}
 		}
@@ -240,7 +324,7 @@ func evalClassDecl(node *ast.ClassDecl, env *object.Environment) object.Object {
 	for name, member := range node.Members {
 		switch member := member.(type) {
 		case *ast.ScalarDecl:
-			memberObj := evalScalarDecl(member, env)
+			memberObj := evalScalarDecl(member)
 			class.Members[name] = memberObj
 		case *ast.ArrayDecl:
 			memberObj := evalArrayDecl(member, env)
@@ -338,7 +422,7 @@ func evalArrayDecl(node *ast.ArrayDecl, env *object.Environment) object.Object {
 	return nil
 }
 
-func evalScalarDecl(node *ast.ScalarDecl, env *object.Environment) object.Object {
+func evalScalarDecl(node *ast.ScalarDecl) object.Object {
 	typ, ok := node.VarType.(*ast.Identifier)
 	if ok {
 		name := strings.ToLower(typ.Name)
@@ -434,47 +518,47 @@ func evalConstDeclItem(node *ast.ConstDeclItem, env *object.Environment) object.
 	typ, ok := node.ConstType.(*ast.Identifier)
 	if ok {
 		val := node.ConstValue.String()
-		switch typ.Name {
-		case "Long$":
+		switch strings.ToLower(typ.Name) {
+		case "long$", "long":
 			obj, err := object.NewLong(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Long: "+val)
 			}
 			obj.Const = true
 			return obj
-		case "Integer$":
+		case "integer$", "integer":
 			obj, err := object.NewInteger(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Integer: "+val)
 			}
 			obj.Const = true
 			return obj
-		case "Single$":
+		case "single$", "single":
 			obj, err := object.NewSingle(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Single: "+val)
 			}
 			obj.Const = true
 			return obj
-		case "Double$":
+		case "double$", "double":
 			obj, err := object.NewDouble(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Double: "+val)
 			}
 			obj.Const = true
 			return obj
-		case "String$":
+		case "string$", "string":
 			obj := object.NewString(val, node.Token().Position)
 			obj.Const = true
 			return obj
-		case "Date$":
+		case "date$", "date":
 			obj, err := object.NewDate(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Date: "+val)
 			}
 			obj.Const = true
 			return obj
-		case "Boolean$":
+		case "boolean$", "boolean":
 			val = strings.ToLower(val)
 			if val == "true" {
 				return object.NewBooleanByBool(true, node.Token().Position)
@@ -483,14 +567,14 @@ func evalConstDeclItem(node *ast.ConstDeclItem, env *object.Environment) object.
 			} else {
 				return object.NewError(node.Token().Position, "invalid value for Boolean: "+val)
 			}
-		case "Currency$":
+		case "currency$", "currency":
 			obj, err := object.NewCurrency(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Currency: "+val)
 			}
 			obj.Const = true
 			return obj
-		case "Variant$":
+		case "variant$", "variant":
 			obj, err := object.NewVariant(val, node.Token().Position)
 			if err != nil {
 				return object.NewError(node.Token().Position, "invalid value for Variant: "+val)
@@ -517,7 +601,7 @@ func evalEnumDecl(node *ast.EnumDecl, env *object.Environment) object.Object {
 	return nil
 }
 
-func evalTypeDef(node *ast.TypeDef, env *object.Environment) object.Object {
+func evalTypeDef(node *ast.TypeDef) object.Object {
 	// skip basic types
 	// the "_" at the begining had to be added to break conflict between Date basic type and Date function
 
@@ -552,8 +636,26 @@ func evalExprStmt(node *ast.ExprStmt, env *object.Environment) object.Object {
 	return Eval(nil, node.Expression, env)
 }
 
-func evalEmptyStmt(node *ast.EmptyStmt, env *object.Environment) object.Object {
-	return nil
+func evalJumpStmt(node *ast.JumpStmt) object.Object {
+	// if we get "on error goto 0" we need to reset the error handler
+	if node.OnError {
+		if node.Number != nil && node.Number.Literal == "0" {
+			ErrorHandler = nil
+		} else {
+			ErrorHandler = node
+		}
+		return object.NOTHING
+	} else {
+		// if resume next
+		if node.JumpKw.Kind == token.KwResume {
+			if node.NextKw != nil {
+				return object.NewResume("", node.Token().Position)
+			} else {
+				return object.NewResume(node.Label.Name, node.Token().Position)
+			}
+		}
+		return object.NewError(node.Token().Position, "unknown jump statement: "+node.String())
+	}
 }
 
 func evalIfStmt(node *ast.IfStmt, env *object.Environment) object.Object {
@@ -563,7 +665,7 @@ func evalIfStmt(node *ast.IfStmt, env *object.Environment) object.Object {
 		return object.NewError(node.Token().Position, "condition is not a Boolean: "+node.Condition.String())
 	}
 	if cond.Value {
-		return evalBody(node.Body, env)
+		return evalBody(node.Body, env, "")
 	} else if node.ElseIf != nil {
 		for _, stmt := range node.ElseIf {
 			condition := Eval(nil, stmt.Condition, env)
@@ -572,12 +674,12 @@ func evalIfStmt(node *ast.IfStmt, env *object.Environment) object.Object {
 				return object.NewError(node.Token().Position, "condition is not a Boolean: "+stmt.Condition.String())
 			}
 			if cond.Value {
-				return evalBody(stmt.Body, env)
+				return evalBody(stmt.Body, env, "")
 			}
 		}
 	}
 	if node.Else != nil {
-		return evalBody(node.Else, env)
+		return evalBody(node.Else, env, "")
 	}
 	return nil
 }
@@ -592,7 +694,7 @@ func evalWhileStmt(node *ast.WhileStmt, env *object.Environment) object.Object {
 		if !cond.Value {
 			break
 		}
-		result := evalBody(node.Body, env)
+		result := evalBody(node.Body, env, "")
 		if result != nil {
 			switch result := result.(type) {
 			case *object.Error:
@@ -619,7 +721,7 @@ func evalUntilStmt(node *ast.UntilStmt, env *object.Environment) object.Object {
 		if cond.Value {
 			break
 		}
-		result := evalBody(node.Body, env)
+		result := evalBody(node.Body, env, "")
 		if result != nil {
 			switch result := result.(type) {
 			case *object.Error:
@@ -638,7 +740,7 @@ func evalUntilStmt(node *ast.UntilStmt, env *object.Environment) object.Object {
 
 func evalDoWhileStmt(node *ast.DoWhileStmt, env *object.Environment) object.Object {
 	for {
-		result := evalBody(node.Body, env)
+		result := evalBody(node.Body, env, "")
 		if result != nil {
 			switch result := result.(type) {
 			case *object.Error:
@@ -666,7 +768,7 @@ func evalDoWhileStmt(node *ast.DoWhileStmt, env *object.Environment) object.Obje
 
 func evalDoUntilStmt(node *ast.DoUntilStmt, env *object.Environment) object.Object {
 	for {
-		result := evalBody(node.Body, env)
+		result := evalBody(node.Body, env, "")
 		if result != nil {
 			switch result := result.(type) {
 			case *object.Error:
@@ -715,7 +817,7 @@ func evalForStmt(node *ast.ForStmt, env *object.Environment) object.Object {
 
 	for {
 		// execute the loop
-		result := evalBody(node.Body, env)
+		result := evalBody(node.Body, env, "")
 		if result != nil {
 			switch result := result.(type) {
 			case *object.Error:
@@ -932,7 +1034,7 @@ func evalSelectStmt(node *ast.SelectStmt, env *object.Environment) object.Object
 	for _, caseStmt := range node.Body {
 		// case else branch
 		if caseStmt.Condition == nil {
-			return evalBody(caseStmt.Body, env)
+			return evalBody(caseStmt.Body, env, "")
 		}
 		// evaluate the case statement condition
 		condition := Eval(nil, caseStmt.Condition, env)
@@ -944,7 +1046,7 @@ func evalSelectStmt(node *ast.SelectStmt, env *object.Environment) object.Object
 		// compare the case statement to the select expression
 		if expression.Equals(condition) {
 			// execute the case statement
-			return evalBody(caseStmt.Body, env)
+			return evalBody(caseStmt.Body, env, "")
 		}
 	}
 
@@ -989,15 +1091,27 @@ func evalBinaryExpr(node *ast.BinaryExpr, env *object.Environment) object.Object
 		return left
 	}
 
-	// check if left is a function definition
-	// on an assignment. If so, we'll evaluate the result instead
+	// are we execution in a function scope?
+	var function *ast.FuncDecl
+	for parent := node.Parent; function == nil && parent != nil; parent = parent.GetParent() {
+		switch parent := parent.(type) {
+		case *ast.FuncDecl:
+			function = parent
+		}
+	}
+
+	// check if left or right is a function definition in the function scope
+	// If so, we'll evaluate the result instead
 	// of the function definition
 	if left.Type() == object.FUNCTION_OBJ {
-		if node.OpKind == token.Assign {
-			resultNode := &ast.Identifier{Name: returnName, Tok: node.Token()}
-			left = Eval(nil, resultNode, env)
-			if left.Type() == object.ERROR_OBJ {
-				return left
+		// are we in the scope of the function?
+		if function != nil {
+			if left.(*object.Function).Definition == function {
+				resultNode := &ast.Identifier{Name: returnName, Tok: node.Token()}
+				left = Eval(nil, resultNode, env)
+				if left.Type() == object.ERROR_OBJ {
+					return left
+				}
 			}
 		}
 	}
@@ -1027,6 +1141,20 @@ func evalBinaryExpr(node *ast.BinaryExpr, env *object.Environment) object.Object
 	if right.Type() == object.VARIANT_OBJ {
 		right = right.(*object.Variant).Value
 	}
+
+	if right.Type() == object.FUNCTION_OBJ {
+		// are we in the scope of the function?
+		if function != nil {
+			if right.(*object.Function).Definition == function {
+				resultNode := &ast.Identifier{Name: returnName, Tok: node.Token()}
+				right = Eval(nil, resultNode, env)
+				if right.Type() == object.ERROR_OBJ {
+					return right
+				}
+			}
+		}
+	}
+
 	// process enum types first
 	if left.Type() == object.USERDEF_OBJ {
 		leftEnum := left.(*object.UserDefined)
@@ -1035,7 +1163,7 @@ func evalBinaryExpr(node *ast.BinaryExpr, env *object.Environment) object.Object
 			if leftEnum.Decl.Identifier.Name != right.Decl.Identifier.Name {
 				return object.NewError(node.Token().Position, "mismatched enum types: "+leftEnum.Decl.Identifier.Name+" and "+right.Decl.Identifier.Name)
 			}
-			return evalEnumBinaryExpr(node, env, leftEnum, right)
+			return evalEnumBinaryExpr(node, leftEnum, right)
 		default:
 			return object.NewError(node.Token().Position, "right operand is not an enum or string: "+node.Right.String())
 		}
@@ -1062,54 +1190,56 @@ func evalBinaryExpr(node *ast.BinaryExpr, env *object.Environment) object.Object
 		if err != nil {
 			return object.NewError(node.Token().Position, "right operand is not a number: "+node.Right.String())
 		}
-		return evalLongBinaryExpr(node, env, left, rightLong.Value)
+		return evalLongBinaryExpr(node, left, rightLong.Value)
 	case ast.IntegerPrecision:
 		// convert  right to Integer
 		rightInt, err := object.NewInteger(right.String(), node.Token().Position)
 		if err != nil {
 			return object.NewError(node.Token().Position, "right operand is not a number: "+node.Right.String())
 		}
-		return evalLongBinaryExpr(node, env, left, int64(rightInt.Value))
+		return evalLongBinaryExpr(node, left, int64(rightInt.Value))
 	case ast.SinglePrecision:
 		// convert  right to Single
 		rightSingle, err := object.NewSingle(right.String(), node.Token().Position)
 		if err != nil {
 			return object.NewError(node.Token().Position, "right operand is not a number: "+node.Right.String())
 		}
-		return evalDoubleBinaryExpr(node, env, left, float64(rightSingle.Value))
+		return evalDoubleBinaryExpr(node, left, float64(rightSingle.Value))
 	case ast.DoublePrecision:
 		// convert  right to Double
 		rightDouble, err := object.NewDouble(right.String(), node.Token().Position)
 		if err != nil {
 			return object.NewError(node.Token().Position, "right operand is not a number: "+node.Right.String())
 		}
-		return evalDoubleBinaryExpr(node, env, left, rightDouble.Value)
+		return evalDoubleBinaryExpr(node, left, rightDouble.Value)
 	case ast.CurrencyPrecision:
 		// convert right to Currency
 		rightCurrency, err := object.NewCurrency(right.String(), node.Token().Position)
 		if err != nil {
 			return object.NewError(node.Token().Position, "right operand is not a number: "+node.Right.String())
 		}
-		return evalDoubleBinaryExpr(node, env, left, rightCurrency.Value)
+		return evalDoubleBinaryExpr(node, left, rightCurrency.Value)
 	case ast.DatePrecision:
 		// convert right to Date
 		rightDate, err := object.NewDate(right.String(), node.Token().Position)
 		if err != nil {
 			return object.NewError(node.Token().Position, "right operand is not a date: "+node.Right.String())
 		}
-		return evalDateBinaryExpr(node, env, left, rightDate.Value)
+		return evalDateBinaryExpr(node, left, rightDate.Value)
 	case ast.StringPrecision:
 		// convert right to String
 		rightString := object.NewString(right.String(), node.Token().Position)
-		return evalStringBinaryExpr(node, env, left, rightString.Value)
+		return evalStringBinaryExpr(node, left, rightString.Value)
 	case ast.BooleanPrecision:
 		return evalBooleanBinaryExpr(node, env, left)
+	case ast.EnumPrecision:
+		return evalEnumBinaryExpr(node, left, right)
 	default:
 		return object.NewError(node.Token().Position, "unknown binary expression: "+node.String())
 	}
 }
 
-func evalLongBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObject object.Object, rightValue int64) object.Object {
+func evalLongBinaryExpr(node *ast.BinaryExpr, leftObject object.Object, rightValue int64) object.Object {
 	// TODO: implement value overflow
 
 	// convert left to Long if it is not an assignment
@@ -1198,7 +1328,7 @@ func evalLongBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObjec
 	return nil
 }
 
-func evalDoubleBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObject object.Object, rightValue float64) object.Object {
+func evalDoubleBinaryExpr(node *ast.BinaryExpr, leftObject object.Object, rightValue float64) object.Object {
 	// TODO: implement value overflow
 	var leftValue float64
 	if leftObject.Type() == object.VARIANT_OBJ {
@@ -1278,6 +1408,12 @@ func evalDoubleBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObj
 			return left
 		case *object.Variant:
 			left.Value = object.NewDoubleByFloat(rightValue, node.Token().Position)
+			return left
+		case *object.Long:
+			left.Value = (int64)(rightValue)
+			return left
+		case *object.Integer:
+			left.Value = (int32)(rightValue)
 			return left
 		default:
 			return object.NewError(node.Token().Position, "numberic conversion error: "+left.String())
@@ -1433,7 +1569,7 @@ func evalUnaryExpr(node *ast.UnaryExpr, env *object.Environment) object.Object {
 	return object.NewError(node.Token().Position, "unknown unary expression: "+node.String())
 }
 
-func evalStringBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObject object.Object, right string) object.Object {
+func evalStringBinaryExpr(node *ast.BinaryExpr, leftObject object.Object, right string) object.Object {
 	var leftValue string
 	if leftObject.Type() == object.VARIANT_OBJ {
 		variant := leftObject.(*object.Variant)
@@ -1482,7 +1618,7 @@ func evalStringBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObj
 	return object.NewError(node.Token().Position, "unknown binary expression: "+node.String())
 }
 
-func evalDateBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObject object.Object, right time.Time) object.Object {
+func evalDateBinaryExpr(node *ast.BinaryExpr, leftObject object.Object, right time.Time) object.Object {
 	var leftValue time.Time
 	if leftObject.Type() == object.VARIANT_OBJ {
 		variant := leftObject.(*object.Variant)
@@ -1529,11 +1665,12 @@ func evalDateBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObjec
 	return object.NewError(node.Token().Position, "unknown binary expression: "+node.String())
 }
 
-func evalEnumBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObject object.Object, right object.Object) object.Object {
+func evalEnumBinaryExpr(node *ast.BinaryExpr, leftObject object.Object, right object.Object) object.Object {
 	var leftValue string
 	var leftType string
 	var rightValue string
 	var rightType string
+	var decl *ast.EnumDecl
 
 	if leftObject.Type() == object.VARIANT_OBJ {
 		variant := leftObject.(*object.Variant)
@@ -1555,18 +1692,20 @@ func evalEnumBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObjec
 		if variant.Value.Type() == object.USERDEF_OBJ {
 			rightValue = variant.Value.(*object.UserDefined).Value
 			rightType = variant.Value.(*object.UserDefined).Decl.Identifier.Name
+			decl = variant.Value.(*object.UserDefined).Decl
 		} else {
 			return object.NewError(node.Token().Position, "right operand is not an enum: "+right.String())
 		}
 	} else if right.Type() == object.USERDEF_OBJ {
 		rightValue = right.(*object.UserDefined).Value
 		rightType = right.(*object.UserDefined).Decl.Identifier.Name
+		decl = right.(*object.UserDefined).Decl
 	} else {
 		return object.NewError(node.Token().Position, "right operand is not an enum: "+right.String())
 	}
 
 	// validate types
-	if leftType != rightType {
+	if leftType != rightType && leftObject.Type() != object.VARIANT_OBJ && right.Type() != object.VARIANT_OBJ {
 		return object.NewError(node.Token().Position, "mismatched enum types: "+leftType+" and "+rightType)
 	}
 
@@ -1585,7 +1724,7 @@ func evalEnumBinaryExpr(node *ast.BinaryExpr, env *object.Environment, leftObjec
 			left.Value = rightValue
 			return left
 		case *object.Variant:
-			left.Value = object.NewUserDefined(rightValue, leftObject.(*object.UserDefined).Decl, node.Token().Position)
+			left.Value = object.NewUserDefined(rightValue, decl, node.Token().Position)
 			left.Value.(*object.UserDefined).Value = rightValue
 			return left
 		}
@@ -1652,6 +1791,9 @@ func evalCallSubStmt(class *object.Class, node *ast.CallSubStmt, env *object.Env
 	sub := Eval(class, node.Definition, env)
 	// don't evaluate the body if the sub is an error
 	// we'll return it anyway
+	if sub == nil {
+		return nil
+	}
 	if sub.Type() == object.EXIT_OBJ {
 		return nil
 	}
@@ -1687,7 +1829,7 @@ func applyFunction(class *object.Class, fn object.Object, values []object.Object
 				val = rtlib.EvalBody(fn, values, extendedEnv)
 			}
 		} else {
-			val = evalBody(fn.Body, extendedEnv)
+			val = evalBody(fn.Body, extendedEnv, "")
 		}
 		if isError(val) {
 			return val
@@ -1712,7 +1854,7 @@ func applyFunction(class *object.Class, fn object.Object, values []object.Object
 		if fn.Body == nil {
 			val = rtlib.EvalBody(fn, values, extendedEnv)
 		} else {
-			val = evalBody(fn.Body, extendedEnv)
+			val = evalBody(fn.Body, extendedEnv, "")
 		}
 		if isError(val) {
 			return val
@@ -1844,9 +1986,26 @@ func evalSpecialStmt(node *ast.SpecialStmt, env *object.Environment) object.Obje
 	var val object.Object
 	val = object.NOTHING // default value
 	switch kind {
+	case token.KwStop:
+		return object.NewExit(token.KwStop, node.Keyword1.Position)
 	case token.KwLet:
 		// evaluate the expression
 		val = Eval(nil, node.Args[0], env)
+	case token.KwErase:
+		// erase the array
+		// expect a node of type Identifier
+		arg, ok := node.Args[0].(*ast.Identifier)
+		if !ok {
+			return object.NewError(node.Keyword1.Position, "argument must be an array")
+		}
+		// array name is in the node
+		name := arg.Name
+		// find the array in the environment
+		_, ok = env.Get(name)
+		if !ok {
+			return object.NewError(node.Keyword1.Position, "array not found: "+name)
+		}
+		env.Delete(name)
 	case token.KwRedim:
 		// only evaluate the array index expression
 		// expect a node of type CallOrIndexExpr
@@ -1897,6 +2056,9 @@ func evalSpecialStmt(node *ast.SpecialStmt, env *object.Environment) object.Obje
 		params := make([]object.Object, 0)
 		for _, expr := range node.Args {
 			val = Eval(nil, expr, env)
+			if isError(val) {
+				return val
+			}
 			params = append(params, val)
 		}
 		val = rtlib.EvalSpecialStatement(node, params, env)

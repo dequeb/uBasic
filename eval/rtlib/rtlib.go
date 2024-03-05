@@ -4,8 +4,16 @@ package rtlib
 // functionality for evaluating expressions, statements, and other µBASIC related
 // tasks.
 
+// to transform it into a µBASIC runtime library:
+// see https://github.com/charlierobin/creating-dylibs-with-go/tree/master
+// add import "C" to the file
+// add //export <function_name> to the function
+// generate the .h file with go tool cgo -godefs <file.go>
+// compile the .dylib with go build -buildmode=c-shared -o <file>.dylib <file>.go
+
 import (
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"strconv"
@@ -16,6 +24,17 @@ import (
 	"uBasic/sem"
 	"uBasic/token"
 )
+
+type Terminal struct {
+	In  io.Reader
+	Out io.Writer
+}
+
+var terminal *Terminal
+
+func Init(term *Terminal) {
+	terminal = term
+}
 
 // EvalSpecialStatement evaluates a special statement.
 func EvalSpecialStatement(node *ast.SpecialStmt, params []object.Object, env *object.Environment) object.Object {
@@ -43,7 +62,8 @@ func EvalSpecialStatement(node *ast.SpecialStmt, params []object.Object, env *ob
 			if node.Semicolon == nil {
 				buf.WriteString("\n")
 			}
-			fmt.Print(buf.String())
+			// fmt.Print(buf.String())
+			terminal.Out.Write([]byte(buf.String()))
 			return value // return last print value or Nothing for automatic testing
 		case "input":
 			if len(params) == 0 {
@@ -62,9 +82,10 @@ func EvalSpecialStatement(node *ast.SpecialStmt, params []object.Object, env *ob
 			if params[0].Type() != object.STRING_OBJ {
 				return object.NewError(params[0].Position(), "argument must be a string")
 			}
-			fmt.Print(prompt)
+			// print prompt
+			terminal.Out.Write([]byte(prompt))
 			var input string
-			fmt.Scanln(&input)
+			fmt.Fscanln(terminal.In, &input)
 			// update parameter 2 with the input
 			if len(params) == 2 {
 				params[1].(*object.String).Value = input

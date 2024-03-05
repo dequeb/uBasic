@@ -58,7 +58,7 @@ func check(file *ast.File, exprTypes map[ast.Expression]types.Type) error {
 					return errors.Newf(n.OpToken.Position, "incompatible type for operator %q; expected %q, got %q and %q", n.OpKind, typ, typX, typY)
 				}
 			case token.Eq, token.Neq, token.Lt, token.Le, token.Gt, token.Ge: // relational operators
-				if !isCompatible(typX, typY) {
+				if !isCompatible(typX, typY) && !isFunctionCompatible(n.Left, n.Right) {
 					return errors.Newf(n.OpToken.Position, "incompatible type for operator %q; between %q and %q", n.OpKind, typX, typY)
 				}
 			case token.And, token.Or: // logical operators
@@ -330,5 +330,45 @@ func isCompatible(t, u types.Type) bool {
 			return t.IsNumerical() && u.IsNumerical()
 		}
 	}
+	return false
+}
+
+// isFunctionCompatible reports whether t and u are of compatible types within function scope
+func isFunctionCompatible(left, right ast.Expression) bool {
+	leftType, err := TypeOf(left)
+	if err != nil {
+		return false
+	}
+	rightType, err := TypeOf(right)
+	if err != nil {
+		return false
+	}
+	functType, ok := leftType.(*types.Func)
+	if ok {
+		if isCompatible(functType.Result, rightType) {
+			// are we in the function scope?
+			for parent := left.GetParent(); parent != nil; parent = parent.GetParent() {
+				if p, ok := parent.(*ast.FuncDecl); ok {
+					if p.FuncName.Name == left.(*ast.Identifier).Name {
+						return true
+					}
+				}
+			}
+		}
+	}
+	functType, ok = rightType.(*types.Func)
+	if ok {
+		if isCompatible(leftType, functType.Result) {
+			// are we in the function scope?
+			for parent := right.GetParent(); parent != nil; parent = parent.GetParent() {
+				if p, ok := parent.(*ast.FuncDecl); ok {
+					if p.FuncName.Name == right.(*ast.Identifier).Name {
+						return true
+					}
+				}
+			}
+		}
+	}
+
 	return false
 }

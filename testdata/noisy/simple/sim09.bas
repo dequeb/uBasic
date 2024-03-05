@@ -57,3 +57,4 @@ Sub main ()
   call gc(xc)
   call gc(yc)
 End Sub
+call main()

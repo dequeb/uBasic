@@ -233,6 +233,17 @@ func setParent(node ast.Node, parent ast.Node) error {
 	case *ast.CallSubStmt:
 		n.SetParent(parent)
 		setParent(n.Definition, n)
+	case *ast.JumpLabelDecl:
+		n.SetParent(parent)
+		setParent(n.Label, n)
+	case *ast.JumpStmt:
+		n.SetParent(parent)
+		if n.Label != nil {
+			setParent(n.Label, n)
+		}
+	case *ast.Comment:
+		n.SetParent(parent)
+
 	default:
 		return errors.Newf(node.Token().Position, "unknown node type %T", node)
 	}

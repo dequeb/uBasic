@@ -101,10 +101,11 @@ const (
 	Single
 	Integer
 	Currency
+	Enum
 	Nothing // no type
 )
 
-// A Field represents a field declaration in a struct type, or a parameter
+// A Field represents a parameter
 // declaration in a function signature.
 //
 // Examples.
@@ -244,7 +245,7 @@ func (t *Class) Equal(u Type) bool {
 	if u == nil {
 		return false
 	}
-	if u == nil || t == nil {
+	if t == nil {
 		return false
 	}
 	if u, ok := u.(*Class); ok {

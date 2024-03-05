@@ -13,3 +13,4 @@ Sub main()
   call foo(a, b)
   Debug.Print a(LBound(a)), b(LBound(b))
 End Sub
+call main()

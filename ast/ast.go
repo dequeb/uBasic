@@ -41,10 +41,6 @@ type Node interface {
 	SetParent(Node)
 	// comparaison of two nodes. Returns nil if nodes are equal
 	EqualsNode(Node) Node
-	// readCompact build a node from a compact string
-	ReadCompact(*CharStack, *IdList) error
-	// WriteCompact returns a compact string representation of the node
-	WriteCompact(*Dict) string
 }
 
 // A Decl node represents a declaration, and has one of the following underlying
@@ -159,6 +155,14 @@ type (
 		FuncName *Identifier
 		// Function body
 		Body []StatementList
+		// parent node
+		Parent Node
+	}
+
+	// comment is kept to allow syntax highlighting
+	Comment struct {
+		// Position of the comment
+		Text *token.Token
 		// parent node
 		Parent Node
 	}
@@ -327,14 +331,14 @@ type (
 		Parent Node
 	}
 
-	// A LabelDecl node represents a label declaration.
+	// A JumpLabelDecl node represents a label declaration.
 	//
 	// Examples.
 	//
 	//    Label:
-	LabelDecl struct {
+	JumpLabelDecl struct {
 		// Label name.
-		LabelName *Identifier
+		Label *Identifier
 		// parent node
 		Parent Node
 	}
@@ -771,6 +775,27 @@ type (
 		Parent Node
 	}
 
+	// A JumpStmt node represents a jump statement.
+	//
+	// Examples.
+	//
+	//    Goto Label
+	//    On error resumn Label
+	JumpStmt struct {
+		// on error indicator
+		OnError bool
+		// jump token
+		JumpKw *token.Token
+		// label name.
+		Label *Identifier
+		// next kw
+		NextKw *token.Token
+		// numeric label
+		Number *token.Token
+		// parent node
+		Parent Node
+	}
+
 	// A CallSelector node represents an object method call expression.
 	//
 	// Examples.
@@ -985,6 +1010,27 @@ func (n *CallSubStmt) String() string {
 	return buf.String()
 }
 
+func (n *JumpStmt) String() string {
+	buf := strings.Builder{}
+	if n.OnError {
+		buf.WriteString("On Error ")
+	}
+	buf.WriteString(n.JumpKw.Literal)
+	if n.NextKw != nil {
+		buf.WriteString(" ")
+		buf.WriteString(n.NextKw.Literal)
+	}
+	if n.Label != nil {
+		buf.WriteString(" ")
+		buf.WriteString(n.Label.String())
+	}
+	if n.Number != nil {
+		buf.WriteString(" ")
+		buf.WriteString(n.Number.Literal)
+	}
+	return buf.String()
+}
+
 func (n *CallOrIndexExpr) String() string {
 	buf := strings.Builder{}
 	buf.WriteString(n.Identifier.String())
@@ -1077,6 +1123,10 @@ func (n *SubDecl) String() string {
 	}
 	buf.WriteString("End Sub")
 	return buf.String()
+}
+
+func (n *Comment) String() string {
+	return n.Text.Literal
 }
 
 func (n *FuncType) String() string {
@@ -1190,8 +1240,8 @@ func (n *EnumDecl) String() string {
 	return buf.String()
 }
 
-func (n *LabelDecl) String() string {
-	return n.LabelName.String() + ":"
+func (n *JumpLabelDecl) String() string {
+	return n.Label.String() + ":"
 }
 
 func (n *ConstDecl) String() string {
@@ -1428,6 +1478,11 @@ func (n *CallSubStmt) Token() *token.Token {
 }
 
 // Token returns the first token of the Node
+func (n *JumpStmt) Token() *token.Token {
+	return n.JumpKw
+}
+
+// Token returns the first token of the Node
 func (n *CallOrIndexExpr) Token() *token.Token {
 	return n.Identifier.Token()
 }
@@ -1468,6 +1523,11 @@ func (n *FuncDecl) Token() *token.Token {
 // Token returns the first token of the Node
 func (n *SubDecl) Token() *token.Token {
 	return n.SubKw
+}
+
+// Token returns the first token of the Node
+func (n *Comment) Token() *token.Token {
+	return n.Text
 }
 
 // Token returns the first token of the Node
@@ -1521,8 +1581,8 @@ func (n *EnumDecl) Token() *token.Token {
 }
 
 // Token returns the first token of the Node
-func (n *LabelDecl) Token() *token.Token {
-	return n.LabelName.Token()
+func (n *JumpLabelDecl) Token() *token.Token {
+	return n.Label.Token()
 }
 
 // Token returns the first token of the Node
@@ -1631,6 +1691,11 @@ func (n *CallSubStmt) GetParent() Node {
 }
 
 // GetParent returns the parent node of the current node.
+func (n *JumpStmt) GetParent() Node {
+	return n.Parent
+}
+
+// GetParent returns the parent node of the current node.
 func (n *CallOrIndexExpr) GetParent() Node {
 	return n.Parent
 }
@@ -1662,6 +1727,11 @@ func (n *FuncDecl) GetParent() Node {
 
 // GetParent returns the parent node of the current node.
 func (n *SubDecl) GetParent() Node {
+	return n.Parent
+}
+
+// GetParent returns the parent node of the current node.
+func (n *Comment) GetParent() Node {
 	return n.Parent
 }
 
@@ -1716,7 +1786,7 @@ func (n *EnumDecl) GetParent() Node {
 }
 
 // GetParent returns the parent node of the current node.
-func (n *LabelDecl) GetParent() Node {
+func (n *JumpLabelDecl) GetParent() Node {
 	return n.Parent
 }
 
@@ -1836,6 +1906,11 @@ func (n *CallSubStmt) SetParent(node Node) {
 }
 
 // SetParent sets the parent node of the current node.
+func (n *JumpStmt) SetParent(node Node) {
+	n.Parent = node
+}
+
+// SetParent sets the parent node of the current node.
 func (n *CallOrIndexExpr) SetParent(node Node) {
 	n.Parent = node
 }
@@ -1867,6 +1942,11 @@ func (n *FuncDecl) SetParent(node Node) {
 
 // SetParent sets the parent node of the current node.
 func (n *SubDecl) SetParent(node Node) {
+	n.Parent = node
+}
+
+// SetParent sets the parent node of the current node.
+func (n *Comment) SetParent(node Node) {
 	n.Parent = node
 }
 
@@ -1921,7 +2001,7 @@ func (n *EnumDecl) SetParent(node Node) {
 }
 
 // SetParent sets the parent node of the current node.
-func (n *LabelDecl) SetParent(node Node) {
+func (n *JumpLabelDecl) SetParent(node Node) {
 	n.Parent = node
 }
 
@@ -2007,6 +2087,7 @@ var (
 	_ Node = &File{}
 	_ Node = &FuncDecl{}
 	_ Node = &SubDecl{}
+	_ Node = &Comment{}
 	_ Node = &FuncType{}
 	_ Node = &SubType{}
 	_ Node = &Identifier{}
@@ -2026,13 +2107,14 @@ var (
 	_ Node = &DoUntilStmt{}
 	_ Node = &ForStmt{}
 	_ Node = &EnumDecl{}
-	_ Node = &LabelDecl{}
+	_ Node = &JumpLabelDecl{}
 	_ Node = &UserDefinedType{}
 	_ Node = &ParamItem{}
 	_ Node = &ForEachExpr{}
 	_ Node = &ForNextExpr{}
 	_ Node = &ClassDecl{}
 	_ Node = &CaseStmt{}
+	_ Node = &JumpStmt{}
 )
 
 // Verify that all for loop expression nodes implement the ForExpr interface.
@@ -2047,7 +2129,7 @@ func (n *TypeDef) Type() (types.Type, error) {
 		return n.Val, nil
 	}
 	var err error
-	if n.Val, err = newType(n.DeclType); err != nil {
+	if n.Val, err = NewType(n.DeclType); err != nil {
 		return nil, err
 	}
 	return n.Val, nil
@@ -2055,27 +2137,27 @@ func (n *TypeDef) Type() (types.Type, error) {
 
 // Type returns the type of the declared identifier.
 func (n *ClassDecl) Type() (types.Type, error) {
-	return newType(n)
+	return NewType(n)
 }
 
 // Type returns the type of the declared identifier.
 func (n *FuncDecl) Type() (types.Type, error) {
-	return newType(n.FuncType)
+	return NewType(n.FuncType)
 }
 
 // Type returns the type of the declared identifier.
 func (n *SubDecl) Type() (types.Type, error) {
-	return newType(n.SubType) // Will return Nothing
+	return NewType(n.SubType) // Will return Nothing
 }
 
 // Type returns the type of the declared identifier.
 func (n *ScalarDecl) Type() (types.Type, error) {
-	return newType(n.VarType)
+	return NewType(n.VarType)
 }
 
 // Type returns the type of the declared identifier.
 func (n *ArrayDecl) Type() (types.Type, error) {
-	return newType(n.VarType)
+	return NewType(n.VarType)
 }
 
 // Type returns the type of the declared identifier.
@@ -2087,10 +2169,10 @@ func (n *DimDecl) Type() (types.Type, error) {
 func (n *ParamItem) Type() (types.Type, error) {
 	// check if it is an array
 	if n.IsArray {
-		return newType(n)
+		return NewType(n)
 	}
 	if n.VarType != nil {
-		return newType(n.VarType)
+		return NewType(n.VarType)
 	} else {
 		return n.VarName.Type()
 	}
@@ -2099,7 +2181,7 @@ func (n *ParamItem) Type() (types.Type, error) {
 
 // Type returns the type of the declared constant.
 func (n *ConstDeclItem) Type() (types.Type, error) {
-	return newType(n.ConstType)
+	return NewType(n.ConstType)
 }
 
 // Type returns the type of the declared identifier.
@@ -2109,7 +2191,7 @@ func (n *EnumDecl) Type() (types.Type, error) {
 }
 
 // Type returns the type of the declared identifier.
-func (n *LabelDecl) Type() (types.Type, error) {
+func (n *JumpLabelDecl) Type() (types.Type, error) {
 	return nil, nil
 }
 
@@ -2123,37 +2205,37 @@ func (n *Identifier) Type() (types.Type, error) {
 
 // Type returns the type of the declared identifier.
 func (n *UserDefinedType) Type() (types.Type, error) {
-	return newType(n.Identifier)
+	return NewType(n.Identifier)
 }
 
 // Type returns the type of the declared identifier.
 func (n *UnaryExpr) Type() (types.Type, error) {
-	return newType(n.Right)
+	return NewType(n.Right)
 }
 
 // Type returns the type of the declared identifier.
 func (n *ParenExpr) Type() (types.Type, error) {
-	return newType(n.Expr)
+	return NewType(n.Expr)
 }
 
 // Type returns the type of the declared identifier.
 func (n *BinaryExpr) Type() (types.Type, error) {
-	return newType(n)
+	return NewType(n)
 }
 
 // Type returns the type of the declared identifier.
 func (n *CallOrIndexExpr) Type() (types.Type, error) {
-	return newType(n.Identifier)
+	return NewType(n.Identifier)
 }
 
 // Type returns the type of the declared identifier.
 func (n *CallSelectorExpr) Type() (types.Type, error) {
-	return newType(n.Selector)
+	return NewType(n.Selector)
 }
 
 // Type returns the type of the declared identifier.
 func (n *BasicLit) Type() (types.Type, error) {
-	return newType(n)
+	return NewType(n)
 }
 
 // Name returns the name of the declared identifier.
@@ -2192,8 +2274,8 @@ func (n *EnumDecl) Name() *Identifier {
 }
 
 // Name returns the name of the declared identifier.
-func (n *LabelDecl) Name() *Identifier {
-	return n.LabelName
+func (n *JumpLabelDecl) Name() *Identifier {
+	return n.Label
 }
 
 // Name returns the name of the declared identifier.
@@ -2284,7 +2366,7 @@ func (n *EnumDecl) Value() Node {
 //
 // As it is not desirable to initialize a label with a value, this method
 // always returns nil.
-func (n *LabelDecl) Value() Node {
+func (n *JumpLabelDecl) Value() Node {
 	return nil
 }
 
@@ -2321,7 +2403,7 @@ func (n *ConstDeclItem) isDecl() {}
 func (n *ScalarDecl) isDecl()    {}
 func (n *ArrayDecl) isDecl()     {}
 func (n *EnumDecl) isDecl()      {}
-func (n *LabelDecl) isDecl()     {}
+func (n *JumpLabelDecl) isDecl() {}
 func (n *ParamItem) isDecl()     {}
 func (n *ClassDecl) isDecl()     {}
 
@@ -2335,31 +2417,33 @@ var (
 	_ Decl = &ArrayDecl{}
 	_ Decl = &ScalarDecl{}
 	_ Decl = &EnumDecl{}
-	_ Decl = &LabelDecl{}
+	_ Decl = &JumpLabelDecl{}
 	_ Decl = &ParamItem{}
 	_ Decl = &ClassDecl{}
 )
 
 // isStmt ensures that only statement nodes can be assigned to the Stmt
 // interface.
-func (n *ExitStmt) isStmt()    {}
-func (n *SpecialStmt) isStmt() {}
-func (n *CallSubStmt) isStmt() {}
-func (n *EmptyStmt) isStmt()   {}
-func (n *ExprStmt) isStmt()    {}
-func (n *IfStmt) isStmt()      {}
-func (n *SelectStmt) isStmt()  {}
-func (n *WhileStmt) isStmt()   {}
-func (n *UntilStmt) isStmt()   {}
-func (n *DoWhileStmt) isStmt() {}
-func (n *DoUntilStmt) isStmt() {}
-func (n *ForStmt) isStmt()     {}
-func (n *DimDecl) isStmt()     {}
-func (n *ConstDecl) isStmt()   {}
-func (n *EnumDecl) isStmt()    {}
-func (n *LabelDecl) isStmt()   {}
-func (n *FuncDecl) isStmt()    {}
-func (n *SubDecl) isStmt()     {}
+func (n *ExitStmt) isStmt()      {}
+func (n *SpecialStmt) isStmt()   {}
+func (n *CallSubStmt) isStmt()   {}
+func (n *EmptyStmt) isStmt()     {}
+func (n *ExprStmt) isStmt()      {}
+func (n *IfStmt) isStmt()        {}
+func (n *SelectStmt) isStmt()    {}
+func (n *WhileStmt) isStmt()     {}
+func (n *UntilStmt) isStmt()     {}
+func (n *DoWhileStmt) isStmt()   {}
+func (n *DoUntilStmt) isStmt()   {}
+func (n *ForStmt) isStmt()       {}
+func (n *DimDecl) isStmt()       {}
+func (n *ConstDecl) isStmt()     {}
+func (n *EnumDecl) isStmt()      {}
+func (n *JumpLabelDecl) isStmt() {}
+func (n *FuncDecl) isStmt()      {}
+func (n *SubDecl) isStmt()       {}
+func (n *JumpStmt) isStmt()      {}
+func (n *Comment) isStmt()       {}
 
 // Verify that the statement nodes implement the Stmt interface.
 var (
@@ -2378,9 +2462,11 @@ var (
 	_ Statement = &DimDecl{}
 	_ Statement = &ConstDecl{}
 	_ Statement = &EnumDecl{}
-	_ Statement = &LabelDecl{}
+	_ Statement = &JumpLabelDecl{}
 	_ Statement = &FuncDecl{}
 	_ Statement = &SubDecl{}
+	_ Statement = &JumpStmt{}
+	_ Statement = &Comment{}
 )
 
 // isExpr ensures that only expression nodes can be assigned to the Expr
@@ -2586,7 +2672,9 @@ func IsNil(n Node) bool {
 		return n == nil
 	case *EnumDecl:
 		return n == nil
-	case *LabelDecl:
+	case *JumpLabelDecl:
+		return n == nil
+	case *JumpStmt:
 		return n == nil
 	case *ParamItem:
 		return n == nil
@@ -2647,6 +2735,8 @@ func IsNil(n Node) bool {
 	case *ForEachExpr:
 		return n == nil
 	case *ForNextExpr:
+		return n == nil
+	case *Comment:
 		return n == nil
 
 	default:
