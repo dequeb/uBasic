@@ -189,7 +189,7 @@ func (area *FourPaneArea) SouceEditor(gtx layout.Context, th *material.Theme) la
 	if exec.Debug.Env.From.Token() != nil {
 		currentLine = exec.Debug.Env.From.Token().Position.Line
 	}
-	var spans = ColorText(exec.Debug.Ast, currentLine)
+	var spans = ColorText(exec.Debug.File, currentLine)
 
 	// render the rich text into the operation list
 	ed := richtext.Text(&state, th.Shaper, spans...)

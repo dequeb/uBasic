@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
 	"uBasic/exec"
 	"uBasic/ide"
+	"uBasic/irgen"
 
 	"gioui.org/app"
 )
@@ -31,16 +33,18 @@ func main() {
 		err = exec.LoadInterpreter(os.Args[1])
 	} else {
 		// err = exec.LoadInterpreter("testdata/noisy/simple/sim07.bas")
-		err = exec.LoadInterpreter("testdata/noisy/advanced/primes.bas")
+		// err = exec.LoadInterpreter("testdata/noisy/advanced/primes.bas")
 		// err = exec.LoadInterpreter("testdata/samples/error01.bas")
 		// err = exec.LoadInterpreter("testdata/test color.bas")
 		// err = exec.LoadInterpreter("testdata/incorrect/parser/pe17.bas")
+		err = exec.LoadInterpreter("testdata/compile.bas")
+
 	}
 
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	fmt.Println(irgen.Compile(exec.Debug.File).String())
 	go func() {
 		w := app.NewWindow()
 		err := ide.Run(w)

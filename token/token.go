@@ -166,6 +166,8 @@ const (
 	KwCall
 	KwLet
 
+	__main__ // main  - not a real keyword, but used to represent the main entry point
+
 	keywordEnd
 )
 
@@ -256,6 +258,7 @@ func (kind Kind) String() string {
 		KwPreserve:   "Preserve",
 		KwCall:       "Call",
 		KwLet:        "Let",
+		__main__:     "main",
 	}
 	return names[kind]
 }
@@ -346,4 +349,5 @@ var Keywords = map[string]Kind{
 	"div":        IntDiv,
 	"mod":        Mod,
 	"exp":        Exponent,
+	"main":       __main__,
 }
