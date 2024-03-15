@@ -48,7 +48,7 @@ func Test1(t *testing.T) {
 				pass = false
 				// display enhance message format
 				src := source.Source{Input: testCase.src}
-				err.(*errors.Error).Src = &src
+				err.(*errors.Error).Source = &src
 				t.Log(err.Error())
 				// t.Log(fmt.Sprintf("error in %v at line %d, column %d\n",
 				// 	err.(*parserError.Error).ErrorToken.Lit,
@@ -103,7 +103,7 @@ func Test2(t *testing.T) {
 					for _, err := range p.Errors() {
 						// enhanced error format
 						if err, ok := err.(*errors.Error); ok {
-							err.Src = &src
+							err.Source = &src
 						}
 						t.Log(err)
 					}
@@ -161,7 +161,7 @@ func Test3(t *testing.T) {
 						for _, err := range p.Errors() {
 							// enhanced error format
 							if err, ok := err.(*errors.Error); ok {
-								err.Src = &src
+								err.Source = &src
 							}
 							t.Log(err)
 						}
@@ -171,7 +171,7 @@ func Test3(t *testing.T) {
 						if err != nil {
 							// enhanced error format
 							if err, ok := err.(*errors.Error); ok {
-								err.Src = &src
+								err.Source = &src
 							}
 							t.Log(err)
 						}

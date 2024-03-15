@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"uBasic/ast"
+	uBasictypes "uBasic/types"
 
 	"github.com/llir/llvm/ir/constant"
 	irtypes "github.com/llir/llvm/ir/types"
@@ -13,7 +14,7 @@ import (
 // implicitConversion implicitly converts the value of the smallest type to the
 // largest type of x and y, emitting code to f. The new values of x and y are
 // returned.
-func (m *Module) implicitConversion(f *Function, x, y value.Value) (value.Value, value.Value) {
+func (m *Module) implicitConversion(f *Func, x, y value.Value) (value.Value, value.Value) {
 	// Implicit conversion.
 	switch {
 	case isLarger(x.Type(), y.Type()):
@@ -26,98 +27,49 @@ func (m *Module) implicitConversion(f *Function, x, y value.Value) (value.Value,
 
 // convert converts the given value to the specified type, emitting code to f.
 // No conversion is made, if v is already of the correct type.
-func (m *Module) convert(f *Function, v value.Value, to irtypes.Type) value.Value {
+func (m *Module) convert(f *Func, v value.Value, to irtypes.Type) value.Value {
 	// Early return if v is already of the correct type.
 	from := v.Type()
 	if irtypes.Equal(from, to) {
 		return v
 	}
 	fromType, ok := from.(*irtypes.IntType)
-	if ok {
-		return m.convertIntType(f, v, fromType, to)
-	} else if fromType, ok := from.(*irtypes.FloatType); ok {
-		return m.convertFloatType(f, v, fromType, to)
-	} else if fromType, ok := from.(*irtypes.PointerType); ok {
-		return m.convertPointerType(f, v, fromType, to)
-	} else {
-		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
+	if !ok {
+		panic(fmt.Sprintf("support for converting from type %T not yet implemented", from))
 	}
-}
-
-// convertIntType converts the given integer value to the specified type, emitting code to f.
-func (m *Module) convertIntType(f *Function, v value.Value, fromType *irtypes.IntType, to irtypes.Type) value.Value {
-	toIntType, ok := to.(*irtypes.IntType)
-	if ok {
-		toSize := toIntType.BitSize
-		fromSize := fromType.BitSize
-		if toSize > fromSize {
-			return f.currentBlock.NewSExt(v, toIntType)
-		} else if toSize < fromSize {
-			return f.currentBlock.NewTrunc(v, toIntType)
-		} else {
-			return v
-		}
-	} else if toFloatType, ok := to.(*irtypes.FloatType); ok {
-		return f.currentBlock.NewSIToFP(v, toFloatType)
-	} else {
-		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
-
-	}
-}
-
-// convertFloatType converts the given integer value to the specified type, emitting code to f.
-func (m *Module) convertFloatType(f *Function, v value.Value, fromType *irtypes.FloatType, to irtypes.Type) value.Value {
-	toFloadType, ok := to.(*irtypes.FloatType)
-	if ok {
-		toSize := 64
-		switch toFloadType.Kind {
-		case irtypes.FloatKindFloat:
-			toSize = 32
-		case irtypes.FloatKindDouble:
-			toSize = 64
-		}
-		fromSize := 64
-		switch fromType.Kind {
-		case irtypes.FloatKindFloat:
-			fromSize = 32
-		case irtypes.FloatKindDouble:
-			fromSize = 64
-		}
-		if toSize > fromSize {
-			return f.currentBlock.NewFPExt(v, toFloadType)
-		} else if toSize < fromSize {
-			return f.currentBlock.NewFPTrunc(v, toFloadType)
-		} else {
-			return v
-		}
-	} else if toIntType, ok := to.(*irtypes.IntType); ok {
-		return f.currentBlock.NewFPToSI(v, toIntType)
-	} else {
-		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
-	}
-
-}
-
-// convertPointerType converts the given integer value to the specified type, emitting code to f.
-func (m *Module) convertPointerType(f *Function, v value.Value, fromType *irtypes.PointerType, to irtypes.Type) value.Value {
-
-	_, ok := to.(*irtypes.IntType)
+	toType, ok := to.(*irtypes.IntType)
 	if !ok {
 		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
 	}
 
-	return v
-}
-
-// convertConst  converts the given value to the specified type, emitting code to f.
-// No conversion is made, if v is already of the correct type.
-func (m *Module) convertConst(f *Function, v constant.Constant, to irtypes.Type) constant.Constant {
-	// Early return if v is already of the correct type.
-	from := v.Type()
-	if irtypes.Equal(from, to) {
-		return v
+	// Convert constant values.
+	switch v := v.(type) {
+	case *constant.Int:
+		c, err := constant.NewIntFromString(toType, v.Ident())
+		if err != nil {
+			panic(fmt.Errorf("unable to parse integer literal %q; %v", v.Ident(), err))
+		}
+		return c
+	case *constant.Float:
+		panic(fmt.Sprintf("support for converting type %T not yet implemented", v))
 	}
-	panic(fmt.Sprintf("support for converting from type %T not yet implemented", from))
+
+	// TODO: Add proper support for converting signed and unsigned values, using
+	// sext and zext, respectively.
+
+	// Convert unsigned values.
+	if fromType.Equal(irtypes.I1) {
+		// Zero extend boolean values.
+		return f.curBlock.NewZExt(v, toType)
+	}
+
+	// Convert signed values.
+	if toType.BitSize > fromType.BitSize {
+		// Sign extend.
+		return f.curBlock.NewSExt(v, toType)
+	}
+	// Truncate.
+	return f.curBlock.NewTrunc(v, toType)
 }
 
 // isLarger reports whether t has higher precision than u.
@@ -174,8 +126,9 @@ func isTentativeDef(n ast.Decl) bool {
 	return !ident.Tok.Position.Equals(&def.Tok.Position)
 }
 
-// genUnique generates a unique local variable name based on the given identifier.
-func (f *Function) genUnique(ident *ast.Identifier) string {
+// genUnique generates a unique local variable name based on the given
+// identifier.
+func (f *Func) genUnique(ident *ast.Identifier) string {
 	name := ident.Name
 	if !f.exists[name] {
 		f.exists[name] = true
@@ -199,7 +152,7 @@ func (m *Module) isGlobal(ident *ast.Identifier) bool {
 
 // valueFromIdent returns the LLVM IR value associated with the given
 // identifier. Only search for global values if f is nil.
-func (m *Module) valueFromIdent(f *Function, ident *ast.Identifier) value.Value {
+func (m *Module) valueFromIdent(f *Func, ident *ast.Identifier) value.Value {
 	pos := ident.Decl.Name().Tok.Position.Absolute
 	if v, ok := m.idents[pos]; ok {
 		return v
@@ -222,7 +175,7 @@ func (m *Module) setIdentValue(ident *ast.Identifier, v value.Value) {
 }
 
 // setIdentValue maps the given local identifier to the associated value.
-func (f *Function) setIdentValue(ident *ast.Identifier, v value.Value) {
+func (f *Func) setIdentValue(ident *ast.Identifier, v value.Value) {
 	pos := ident.Decl.Name().Tok.Position.Absolute
 	if old, ok := f.idents[pos]; ok {
 		panic(fmt.Sprintf("unable to map identifier %q to value %v; already mapped to value %v", ident, v, old))
@@ -236,4 +189,62 @@ func (m *Module) typeOf(expr ast.Expression) irtypes.Type {
 		return toIrType(typ)
 	}
 	panic(fmt.Sprintf("unable to locate type for expression %v", expr))
+}
+
+// toIrType converts the given uBasic type to the corresponding LLVM IR type.
+func toIrType(n uBasictypes.Type) irtypes.Type {
+	//TODO: implement, placeholder implementation
+	var t irtypes.Type
+	var err error
+	switch uBasicType := n.(type) {
+	case *uBasictypes.Basic:
+		switch uBasicType.Kind {
+		case uBasictypes.Boolean:
+			t = irtypes.NewInt(1)
+		case uBasictypes.Integer:
+			t = irtypes.NewInt(32)
+		case uBasictypes.Long:
+			t = irtypes.NewInt(64)
+		case uBasictypes.Single:
+			t = irtypes.Float
+		case uBasictypes.Currency:
+			t = irtypes.Float
+		case uBasictypes.Double:
+			t = irtypes.Double
+		case uBasictypes.Nothing:
+			t = irtypes.Void
+		}
+	case *uBasictypes.Array:
+		elem := toIrType(uBasicType.Type)
+		var length = 0
+		for _, dim := range uBasicType.Dimensions {
+			length *= dim
+		}
+		if length == 0 {
+			t = irtypes.NewPointer(elem) // dynamic array
+		} else {
+			t = irtypes.NewArray(uint64(length), elem) // static array
+		}
+	case *uBasictypes.Func:
+		var params []irtypes.Type
+		variadic := false
+		for _, p := range uBasicType.Params {
+			pt := toIrType(p.Type)
+			dbg.Printf("converting type %#v to %#v", p.Type, pt)
+			params = append(params, pt)
+		}
+		result := toIrType(uBasicType.Result)
+		typ := irtypes.NewFunc(result, params...)
+		typ.Variadic = variadic
+		t = typ
+	default:
+		panic(fmt.Sprintf("support for translating type %T not yet implemented.", uBasicType))
+	}
+	if err != nil {
+		panic(err)
+	}
+	if t == nil {
+		panic(fmt.Errorf("Conversion failed: %#v", n))
+	}
+	return t
 }

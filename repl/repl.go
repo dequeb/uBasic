@@ -44,7 +44,7 @@ func Start(in io.Reader, out io.Writer) {
 			if p.Errors() != nil {
 				for _, err := range p.Errors() {
 					e := err.(*errors.Error)
-					e.Src = &source.Source{Input: text, Name: "repl"}
+					e.Source = &source.Source{Input: text, Name: "repl"}
 					fmt.Fprintln(out, err)
 				}
 			}
@@ -52,7 +52,7 @@ func Start(in io.Reader, out io.Writer) {
 			info, err := sem.Check(file)
 			if err != nil {
 				e := err.(*errors.Error)
-				e.Src = &source.Source{Input: text, Name: "repl"}
+				e.Source = &source.Source{Input: text, Name: "repl"}
 				fmt.Fprintln(out, err)
 			} else {
 				env := eval.Define(info, os.Stdin, os.Stdout)

@@ -690,7 +690,7 @@ type (
 	//	  Nothing
 	BasicLit struct {
 		// Position of basic literal.
-		ValPos *token.Token
+		ValTok *token.Token
 		// Basic literal type, one of the following.
 		//
 		//  token.IntLit
@@ -1444,7 +1444,7 @@ func (n *ArrayType) Token() *token.Token {
 
 // Token returns the first token of the Node
 func (n *BasicLit) Token() *token.Token {
-	return n.ValPos
+	return n.ValTok
 }
 
 // Token returns the first token of the Node

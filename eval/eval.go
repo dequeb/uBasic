@@ -916,7 +916,7 @@ func incrementForNextExpr(node *ast.ForNextExpr, env *object.Environment) object
 	// create increment node and evaluate it
 	var operation *ast.BinaryExpr
 	if node.Step == nil {
-		operation = &ast.BinaryExpr{Left: node.Variable, OpKind: token.Add, OpToken: node.Token(), Right: &ast.BasicLit{Kind: token.LongLit, Value: "1", ValPos: node.Token()}}
+		operation = &ast.BinaryExpr{Left: node.Variable, OpKind: token.Add, OpToken: node.Token(), Right: &ast.BasicLit{Kind: token.LongLit, Value: "1", ValTok: node.Token()}}
 	} else {
 		operation = &ast.BinaryExpr{Left: node.Variable, OpKind: token.Add, OpToken: node.Token(), Right: node.Step}
 	}
@@ -1561,7 +1561,7 @@ func evalUnaryExpr(node *ast.UnaryExpr, env *object.Environment) object.Object {
 		}
 	case token.Minus:
 		// create multiply by -1 node and evaluate it
-		minusOne := &ast.BasicLit{Kind: token.LongLit, ValPos: node.OpToken, Value: "-1"}
+		minusOne := &ast.BasicLit{Kind: token.LongLit, ValTok: node.OpToken, Value: "-1"}
 		multiply := &ast.BinaryExpr{Left: minusOne, OpKind: token.Mul, OpToken: node.OpToken, Right: node.Right}
 		assignment := &ast.BinaryExpr{Left: node.Right, OpKind: token.Assign, OpToken: node.OpToken, Right: multiply}
 		return Eval(nil, assignment, env)

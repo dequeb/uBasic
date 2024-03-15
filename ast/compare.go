@@ -57,7 +57,7 @@ func (n *BasicLit) EqualsNode(node Node) Node {
 	if !ok {
 		return n
 	}
-	if n.Kind == n2.Kind && n.Value == n2.Value && n.ValPos.Equals(n2.ValPos) {
+	if n.Kind == n2.Kind && n.Value == n2.Value && n.ValTok.Equals(n2.ValTok) {
 		return nil
 	}
 	return n

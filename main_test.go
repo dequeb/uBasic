@@ -131,7 +131,7 @@ func Test3(t *testing.T) {
 					if file == nil {
 						for _, err := range p.Errors() {
 							e := err.(*errors.Error)
-							e.Src = &source.Source{Input: string(data), Name: filename}
+							e.Source = &source.Source{Input: string(data), Name: filename}
 							t.Log(err.Error())
 						}
 					} else {
@@ -139,7 +139,7 @@ func Test3(t *testing.T) {
 						if _, err := sem.Check(file); err != nil {
 							pass = false
 							e := err.(*errors.Error)
-							e.Src = &source.Source{Input: string(data), Name: filename}
+							e.Source = &source.Source{Input: string(data), Name: filename}
 							t.Log(err.Error())
 						} else {
 							t.Log("File: ", filename, " passed semantic analysis.")

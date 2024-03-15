@@ -1,15 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
 	"uBasic/exec"
-	"uBasic/ide"
 	"uBasic/irgen"
-
-	"gioui.org/app"
 )
 
 // to call rtllib as a dynamic library
@@ -40,23 +36,26 @@ func main() {
 		err = exec.LoadInterpreter("testdata/compile.bas")
 
 	}
-
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(irgen.Compile(exec.Debug.File).String())
-	go func() {
-		w := app.NewWindow()
-		err := ide.Run(w)
-		if err != nil {
-			log.Fatal(err)
-		}
-		os.Exit(0)
-	}()
-	go func() {
-		if err := exec.Debug.Run(); err != nil {
-			exec.Debug.Terminal.WriteString(err.Error())
-		}
-	}()
-	app.Main()
+
+	if err := irgen.GenToFile(exec.Debug.File, exec.Debug.Info, "irgen/llvm/compile.ll"); err != nil {
+		log.Fatal(err)
+	}
+
+	// go func() {
+	// 	w := app.NewWindow()
+	// 	err := ide.Run(w)
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	os.Exit(0)
+	// }()
+	// go func() {
+	// 	if err := exec.Debug.Run(); err != nil {
+	// 		exec.Debug.Terminal.WriteString(err.Error())
+	// 	}
+	// }()
+	// app.Main()
 }

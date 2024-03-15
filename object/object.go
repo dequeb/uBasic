@@ -933,6 +933,14 @@ const YYYYMMDD = "2006-01-02"                 // default date
 const HHMMSS = "15:04:05"                     // default time
 
 func NewDate(value string, pos token.Position) (*Date, error) {
+	dt, err := FromStringToTime(value)
+	if err == nil {
+		return &Date{Value: dt, Pos: pos}, nil
+	}
+	return nil, err
+}
+
+func FromStringToTime(value string) (time.Time, error) {
 	var dateFormats = []string{
 		YYYYMMDD,
 		"2006/01/02",
@@ -946,10 +954,10 @@ func NewDate(value string, pos token.Position) (*Date, error) {
 	for _, format := range dateFormats {
 		dt, err = time.Parse(format, s)
 		if err == nil {
-			return &Date{Value: dt, Pos: pos}, nil
+			return dt, nil
 		}
 	}
-	return nil, err
+	return time.Time{}, err
 }
 
 func NewDateByTime(value time.Time, pos token.Position) *Date {
@@ -961,14 +969,18 @@ func (d *Date) Type() ObjectType {
 }
 
 func (d *Date) String() string {
-	if d.Value.IsZero() {
+	return FromTimeToString(d.Value)
+}
+
+func FromTimeToString(value time.Time) string {
+	if value.IsZero() {
 		return ""
-	} else if d.Value.Hour() == 0 && d.Value.Minute() == 0 && d.Value.Second() == 0 {
-		return d.Value.Format(YYYYMMDD)
-	} else if d.Value.Year() == 0 && d.Value.Month() == 1 && d.Value.Day() == 1 {
-		return d.Value.Format(HHMMSS)
+	} else if value.Hour() == 0 && value.Minute() == 0 && value.Second() == 0 {
+		return value.Format(YYYYMMDD)
+	} else if value.Year() == 0 && value.Month() == 1 && value.Day() == 1 {
+		return value.Format(HHMMSS)
 	}
-	return d.Value.Format(YYYYMMDD_HHMMSS)
+	return value.Format(YYYYMMDD_HHMMSS)
 }
 
 func (d *Date) IsConstant() bool {

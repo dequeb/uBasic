@@ -23,7 +23,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	universe := NewScope(nil)
 
 	// Add built-in types to universe scope.
-	// add "$" suffix to avoid conflict with between date type and date built-in function
+	// add "$" suffix to avoid conflict between types and built-in functions with the same name (string, date, etc.)
 	longIdent := &ast.Identifier{Tok: &UniverseToken, Name: "Long$"}
 	longDecl := &ast.TypeDef{DeclType: longIdent, TypeName: longIdent, Val: &types.Basic{Kind: types.Long}}
 	longIdent.Decl = longDecl
@@ -33,7 +33,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	integerIdent.Decl = integerDecl
 
 	currency := &ast.Identifier{Tok: &UniverseToken, Name: "Currency$"}
-	currencyDecl := &ast.TypeDef{DeclType: currency, TypeName: currency, Val: &types.Basic{Kind: types.Integer}}
+	currencyDecl := &ast.TypeDef{DeclType: currency, TypeName: currency, Val: &types.Basic{Kind: types.Currency}}
 	currency.Decl = currencyDecl
 
 	doubleIdent := &ast.Identifier{Tok: &UniverseToken, Name: "Double$"}
@@ -41,7 +41,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	doubleIdent.Decl = doubleDecl
 
 	singleIdent := &ast.Identifier{Tok: &UniverseToken, Name: "Single$"}
-	singleDecl := &ast.TypeDef{DeclType: singleIdent, TypeName: singleIdent, Val: &types.Basic{Kind: types.Double}}
+	singleDecl := &ast.TypeDef{DeclType: singleIdent, TypeName: singleIdent, Val: &types.Basic{Kind: types.Single}}
 	singleIdent.Decl = singleDecl
 
 	stringIdent := &ast.Identifier{Tok: &UniverseToken, Name: "String$"}
@@ -74,7 +74,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	inStrParam1Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "start"}, VarType: longIdent}
 	inStrParam2Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "string1"}, VarType: stringIdent}
 	inStrParam3Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "string2"}, VarType: stringIdent}
-	inStrParam4Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "compare"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValPos: &UniverseToken, Value: "0"}}
+	inStrParam4Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "compare"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValTok: &UniverseToken, Value: "0"}}
 	inStrFuncType := &ast.FuncType{Params: []ast.ParamItem{*inStrParam1Item, *inStrParam2Item, *inStrParam3Item, *inStrParam4Item}, Result: longIdent}
 	inStrDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: inStrIdent, FuncType: inStrFuncType, Body: nil}
 	inStrIdent.Decl = inStrDecl
@@ -83,7 +83,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	InStrRevParam1Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "stringCheck"}, VarType: stringIdent}
 	InStrRevParam2Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "stringMatch"}, VarType: stringIdent}
 	InStrRevParam3Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "start"}, VarType: longIdent}
-	InstrRevParam4Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "compare"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValPos: &UniverseToken, Value: "0"}}
+	InstrRevParam4Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "compare"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValTok: &UniverseToken, Value: "0"}}
 	InStrRevFuncType := &ast.FuncType{Params: []ast.ParamItem{*InStrRevParam1Item, *InStrRevParam2Item, *InStrRevParam3Item, *InstrRevParam4Item}, Result: longIdent}
 	InStrRevDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: InStrRevIdent, FuncType: InStrRevFuncType, Body: nil}
 	InStrRevIdent.Decl = InStrRevDecl
@@ -116,7 +116,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	MidIdent := &ast.Identifier{Tok: &UniverseToken, Name: "Mid"}
 	MidParam1Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "string"}, VarType: stringIdent}
 	MidParam2Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "start"}, VarType: longIdent}
-	MidParam3Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "length"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValPos: &UniverseToken, Value: "-1"}}
+	MidParam3Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "length"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValTok: &UniverseToken, Value: "-1"}}
 	MidFuncType := &ast.FuncType{Params: []ast.ParamItem{*MidParam1Item, *MidParam2Item, *MidParam3Item}, Result: stringIdent}
 	MidDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: MidIdent, FuncType: MidFuncType, Body: nil}
 	MidIdent.Decl = MidDecl
@@ -143,7 +143,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	StrCompIdent := &ast.Identifier{Tok: &UniverseToken, Name: "StrComp"}
 	StrCompParam1Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "string1"}, VarType: stringIdent}
 	StrCompParam2Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "string2"}, VarType: stringIdent}
-	strCompParam3Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "compare"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValPos: &UniverseToken, Value: "0"}}
+	strCompParam3Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "compare"}, VarType: longIdent, Optional: true, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValTok: &UniverseToken, Value: "0"}}
 	StrCompFuncType := &ast.FuncType{Params: []ast.ParamItem{*StrCompParam1Item, *StrCompParam2Item, *strCompParam3Item}, Result: longIdent}
 	StrCompDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: StrCompIdent, FuncType: StrCompFuncType, Body: nil}
 	StrCompIdent.Decl = StrCompDecl
@@ -401,7 +401,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	LogIdent.Decl = LogDecl
 
 	RndIdent := &ast.Identifier{Tok: &UniverseToken, Name: "Rnd"}
-	RndParam1Item := &ast.ParamItem{Optional: true, VarName: &ast.Identifier{Tok: &UniverseToken, Name: "number"}, VarType: doubleIdent, DefaultValue: &ast.BasicLit{Kind: token.DoubleLit, ValPos: &UniverseToken, Value: "0.0"}}
+	RndParam1Item := &ast.ParamItem{Optional: true, VarName: &ast.Identifier{Tok: &UniverseToken, Name: "number"}, VarType: doubleIdent, DefaultValue: &ast.BasicLit{Kind: token.DoubleLit, ValTok: &UniverseToken, Value: "0.0"}}
 	RndFuncType := &ast.FuncType{Params: []ast.ParamItem{*RndParam1Item}, Result: doubleIdent}
 	RndDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: RndIdent, FuncType: RndFuncType, Body: nil}
 	RndIdent.Decl = RndDecl
@@ -436,14 +436,14 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 
 	LBoundIdent := &ast.Identifier{Tok: &UniverseToken, Name: "LBound"}
 	LBoundParam1Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "array"}, VarType: variantIdent}
-	LBoundParam2Item := &ast.ParamItem{Optional: true, VarName: &ast.Identifier{Tok: &UniverseToken, Name: "dimension"}, VarType: longIdent, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValPos: &UniverseToken, Value: "1"}}
+	LBoundParam2Item := &ast.ParamItem{Optional: true, VarName: &ast.Identifier{Tok: &UniverseToken, Name: "dimension"}, VarType: longIdent, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValTok: &UniverseToken, Value: "1"}}
 	LBoundFuncType := &ast.FuncType{Params: []ast.ParamItem{*LBoundParam1Item, *LBoundParam2Item}, Result: longIdent}
 	LBoundDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: LBoundIdent, FuncType: LBoundFuncType, Body: nil}
 	LBoundIdent.Decl = LBoundDecl
 
 	UBoundIdent := &ast.Identifier{Tok: &UniverseToken, Name: "UBound"}
 	UBoundParam1Item := &ast.ParamItem{VarName: &ast.Identifier{Tok: &UniverseToken, Name: "array"}, VarType: variantIdent}
-	UBoundParam2Item := &ast.ParamItem{Optional: true, VarName: &ast.Identifier{Tok: &UniverseToken, Name: "dimension"}, VarType: longIdent, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValPos: &UniverseToken, Value: "1"}}
+	UBoundParam2Item := &ast.ParamItem{Optional: true, VarName: &ast.Identifier{Tok: &UniverseToken, Name: "dimension"}, VarType: longIdent, DefaultValue: &ast.BasicLit{Kind: token.LongLit, ValTok: &UniverseToken, Value: "1"}}
 	UBoundFuncType := &ast.FuncType{Params: []ast.ParamItem{*UBoundParam1Item, *UBoundParam2Item}, Result: longIdent}
 	UBoundDecl := &ast.FuncDecl{FunctionKw: &UniverseToken, FuncName: UBoundIdent, FuncType: UBoundFuncType, Body: nil}
 	UBoundIdent.Decl = UBoundDecl
@@ -513,34 +513,34 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 	// ------- Constants --------------
 	// --------------------------------
 
-	vbTextCompare := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbTextCompare"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValPos: &UniverseToken}}
-	vbBinaryCompare := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbBinaryCompare"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "0", ValPos: &UniverseToken}}
-	vbUseSystem := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbUseSystem"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "-2", ValPos: &UniverseToken}}
-	vbSunday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbSunday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValPos: &UniverseToken}}
-	vbMonday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbMonday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "2", ValPos: &UniverseToken}}
-	vbTuesday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbTuesday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "3", ValPos: &UniverseToken}}
-	vbWednesday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbWednesday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "4", ValPos: &UniverseToken}}
-	vbThursday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbThursday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "5", ValPos: &UniverseToken}}
-	vbFriday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFriday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "6", ValPos: &UniverseToken}}
-	vbSaturday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbSaturday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "7", ValPos: &UniverseToken}}
-	vbFirstJan1 := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFirstJan1"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValPos: &UniverseToken}}
-	vbFirstFourDays := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFirstFourDays"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "2", ValPos: &UniverseToken}}
-	vbFirstFullWeek := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFirstFullWeek"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "3", ValPos: &UniverseToken}}
-	vbGeneralDate := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbGeneralDate"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "0", ValPos: &UniverseToken}}
-	vbLongDate := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbLongDate"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValPos: &UniverseToken}}
-	vbShortDate := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbShortDate"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "2", ValPos: &UniverseToken}}
-	vbLongTime := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbLongTime"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "3", ValPos: &UniverseToken}}
-	vbShortTime := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbShortTime"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "4", ValPos: &UniverseToken}}
-	vbObjectError := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbObjectError"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "-2147221504", ValPos: &UniverseToken}}
-	vbDataObjectError := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbDataObjectError"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "-2147221500", ValPos: &UniverseToken}}
+	vbTextCompare := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbTextCompare"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValTok: &UniverseToken}}
+	vbBinaryCompare := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbBinaryCompare"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "0", ValTok: &UniverseToken}}
+	vbUseSystem := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbUseSystem"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "-2", ValTok: &UniverseToken}}
+	vbSunday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbSunday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValTok: &UniverseToken}}
+	vbMonday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbMonday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "2", ValTok: &UniverseToken}}
+	vbTuesday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbTuesday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "3", ValTok: &UniverseToken}}
+	vbWednesday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbWednesday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "4", ValTok: &UniverseToken}}
+	vbThursday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbThursday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "5", ValTok: &UniverseToken}}
+	vbFriday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFriday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "6", ValTok: &UniverseToken}}
+	vbSaturday := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbSaturday"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "7", ValTok: &UniverseToken}}
+	vbFirstJan1 := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFirstJan1"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValTok: &UniverseToken}}
+	vbFirstFourDays := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFirstFourDays"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "2", ValTok: &UniverseToken}}
+	vbFirstFullWeek := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFirstFullWeek"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "3", ValTok: &UniverseToken}}
+	vbGeneralDate := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbGeneralDate"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "0", ValTok: &UniverseToken}}
+	vbLongDate := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbLongDate"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "1", ValTok: &UniverseToken}}
+	vbShortDate := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbShortDate"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "2", ValTok: &UniverseToken}}
+	vbLongTime := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbLongTime"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "3", ValTok: &UniverseToken}}
+	vbShortTime := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbShortTime"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "4", ValTok: &UniverseToken}}
+	vbObjectError := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbObjectError"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "-2147221504", ValTok: &UniverseToken}}
+	vbDataObjectError := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbDataObjectError"}, ConstType: longIdent, ConstValue: &ast.BasicLit{Kind: token.DoubleLit, Value: "-2147221500", ValTok: &UniverseToken}}
 
-	vbTab := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbTab"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\t\"", ValPos: &UniverseToken}}
-	vbLf := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbLf"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\n\"", ValPos: &UniverseToken}}
-	vbCr := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbCr"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\r\"", ValPos: &UniverseToken}}
-	vbCrLf := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbCrLf"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\r\n\"", ValPos: &UniverseToken}}
-	vbVerticalTab := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbVerticalTab"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\v\"", ValPos: &UniverseToken}}
-	vbFormFeed := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFormFeed"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\f\"", ValPos: &UniverseToken}}
-	vbBack := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbBack"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\b\"", ValPos: &UniverseToken}}
+	vbTab := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbTab"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\t\"", ValTok: &UniverseToken}}
+	vbLf := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbLf"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\n\"", ValTok: &UniverseToken}}
+	vbCr := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbCr"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\r\"", ValTok: &UniverseToken}}
+	vbCrLf := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbCrLf"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\r\n\"", ValTok: &UniverseToken}}
+	vbVerticalTab := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbVerticalTab"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\v\"", ValTok: &UniverseToken}}
+	vbFormFeed := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbFormFeed"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\f\"", ValTok: &UniverseToken}}
+	vbBack := &ast.ConstDeclItem{ConstName: &ast.Identifier{Tok: &UniverseToken, Name: "vbBack"}, ConstType: stringIdent, ConstValue: &ast.BasicLit{Kind: token.StringLit, Value: "\"\b\"", ValTok: &UniverseToken}}
 
 	universeConstants := []ast.Decl{
 		vbTab,
@@ -779,7 +779,7 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 					constDecl := &ast.ConstDeclItem{
 						ConstName:  &ast.Identifier{Name: name + "." + value.Name, Tok: value.Token(), Decl: n},
 						ConstType:  constType,
-						ConstValue: &ast.BasicLit{Kind: token.LongLit, Value: strconv.Itoa(index), ValPos: value.Token()},
+						ConstValue: &ast.BasicLit{Kind: token.LongLit, Value: strconv.Itoa(index), ValTok: value.Token()},
 					}
 					// verify that the declaration is not a keyword
 					constName := constDecl.ConstName.Name

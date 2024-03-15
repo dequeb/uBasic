@@ -35,6 +35,7 @@ type Debugger struct {
 	File        *ast.File
 	Running     bool // pause the debugger
 	Terminal    strings.Builder
+	Info        *sem.Info
 }
 
 func (b *Breakpoints) String() string {
@@ -143,17 +144,18 @@ func LoadInterpreter(fileName string) error {
 	if file == nil {
 		for _, err := range p.Errors() {
 			e := err.(*errors.Error)
-			e.Src = src
+			e.Source = src
 			fmt.Println(err)
 		}
 	} else {
 		info, err := sem.Check(file)
 		if err != nil {
 			e := err.(*errors.Error)
-			e.Src = src
+			e.Source = src
 			fmt.Println(err)
 		} else {
 			file.Name = fileName
+			Debug.Info = info
 			Debug.Terminal = strings.Builder{}
 			Debug.Env = eval.Define(info, os.Stdin, &Debug.Terminal)
 			Debug.Source = &source.Source{Input: input, Name: fileName}

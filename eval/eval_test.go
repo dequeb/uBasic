@@ -225,14 +225,14 @@ func testEval(input string) object.Object {
 	if file == nil {
 		for _, err := range p.Errors() {
 			e := err.(*errors.Error)
-			e.Src = src
+			e.Source = src
 			fmt.Println(err)
 		}
 	} else {
 		info, err := sem.Check(file)
 		if err != nil {
 			e := err.(*errors.Error)
-			e.Src = src
+			e.Source = src
 			fmt.Println(err)
 		} else {
 			env := Define(info, os.Stdin, os.Stdout)

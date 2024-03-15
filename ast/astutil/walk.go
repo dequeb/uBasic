@@ -388,8 +388,8 @@ func walkConstDecl(decl *ast.ConstDecl, before, after func(ast.Node) error) erro
 	if err := before(decl); err != nil {
 		return err
 	}
-	for _, constant := range decl.Consts {
-		if err := WalkBeforeAfter(&constant, before, after); err != nil {
+	for i := range decl.Consts {
+		if err := WalkBeforeAfter(&decl.Consts[i], before, after); err != nil {
 			return err
 		}
 	}

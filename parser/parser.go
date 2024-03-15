@@ -2084,7 +2084,7 @@ func (p *Parser) ParseExpression15() ast.Expression {
 func (p *Parser) ParseExpression16() ast.Expression {
 	switch p.currentToken().Kind {
 	case token.DoubleLit, token.StringLit, token.BooleanLit, token.DateLit, token.LongLit, token.KwTrue, token.KwFalse, token.KwNothing, token.CurrencyLit:
-		expr := &ast.BasicLit{Kind: p.currentToken().Kind, ValPos: p.currentToken(), Value: p.currentToken().Literal}
+		expr := &ast.BasicLit{Kind: p.currentToken().Kind, ValTok: p.currentToken(), Value: p.currentToken().Literal}
 		p.nextToken()
 		return expr
 	case token.Identifier:

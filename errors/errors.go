@@ -13,6 +13,35 @@ import (
 // UseColor indicates if error messages should use colors.
 var UseColor = true
 
+// ErrorList represents a list of errors.
+type ErrorList struct {
+	fmt.Stringer
+	List   []Error
+	Source *source.Source
+}
+
+var Errors = &ErrorList{}
+
+func (el *ErrorList) Add(err *Error) {
+	el.List = append(el.List, *err)
+	if err.Source != nil {
+		err.Source = el.Source
+	}
+}
+
+func (el *ErrorList) String() string {
+	var b strings.Builder
+	for _, err := range el.List {
+		b.WriteString(err.Error())
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func (el *ErrorList) IsEmpty() bool {
+	return len(el.List) == 0
+}
+
 // An Error represents a semantic analysis error.
 type Error struct {
 	// Input source position (in bytes).
@@ -20,7 +49,7 @@ type Error struct {
 	// Error message.
 	Text string
 	// Input source.
-	Src *source.Source
+	Source *source.Source
 }
 
 // New returns a new error based on the given positional information (offset in
@@ -63,7 +92,7 @@ func (e *Error) Error() string {
 		prefix = term.RedBold(prefix)
 		text = term.Color(text, term.Bold)
 	}
-	src := e.Src
+	src := e.Source
 	if src == nil {
 		// If Src is nil, the error format is as follows.
 		//
