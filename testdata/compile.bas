@@ -150,3 +150,14 @@ end Sub
 Call while1()
 
 
+
+
+
+
+
+
+Function times2(n As long) as Long
+    let times2 = n * 2
+end Function
+
+print times2(10)

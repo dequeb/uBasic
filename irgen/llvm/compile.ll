@@ -107,6 +107,19 @@ define void @while1() {
 	ret void
 }
 
+define i64 @times2(i64 %n) {
+0:
+	%1 = alloca i64
+	store i64 %n, i64* %1
+	%2 = alloca i64
+	store i64 0, i64* %2
+	%3 = load i64, i64* %1
+	%4 = mul i64 %3, 2
+	store i64 %4, i64* %2
+	%5 = load i64, i64* %2
+	ret i64 %5
+}
+
 define i32 @main(i32 %argc, i8** %argv) {
 0:
 	store i64 10, i64* @l
@@ -640,5 +653,10 @@ define i32 @main(i32 %argc, i8** %argv) {
 
 390:
 	call void @while1()
+	%391 = call i64 @times2(i64 10)
+	%392 = alloca [4 x i8]
+	store [4 x i8] c"%ld\00", [4 x i8]* %392
+	%393 = call i32 (i8*, ...) @printf([4 x i8]* %392, i64 %391)
+	%394 = call i32 @puts(i8* getelementptr ([1 x i8], [1 x i8]* @vbEmpty, i32 0, i32 0))
 	ret i32 0
 }

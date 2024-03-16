@@ -33,14 +33,14 @@ func main() {
 		// err = exec.LoadInterpreter("testdata/samples/error01.bas")
 		// err = exec.LoadInterpreter("testdata/test color.bas")
 		// err = exec.LoadInterpreter("testdata/incorrect/parser/pe17.bas")
-		err = exec.LoadInterpreter("testdata/compile2.bas")
+		err = exec.LoadInterpreter("testdata/compile.bas")
 
 	}
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := irgen.GenToFile(exec.Debug.File, exec.Debug.Info, "irgen/llvm/compile2.ll"); err != nil {
+	if err := irgen.GenToFile(exec.Debug.File, exec.Debug.Info, "irgen/llvm/compile.ll"); err != nil {
 		log.Fatal(err)
 	}
 
