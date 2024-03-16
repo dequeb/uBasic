@@ -37,8 +37,8 @@ func (m *Module) convert(f *Function, v value.Value, to irtypes.Type) value.Valu
 		return m.convertIntType(f, v, fromType, to)
 	} else if fromType, ok := from.(*irtypes.FloatType); ok {
 		return m.convertFloatType(f, v, fromType, to)
-	} else if fromType, ok := from.(*irtypes.PointerType); ok {
-		return m.convertPointerType(f, v, fromType, to)
+	} else if _, ok := from.(*irtypes.PointerType); ok {
+		return m.convertPointerType(v, to)
 	} else {
 		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
 	}
@@ -99,7 +99,7 @@ func (m *Module) convertFloatType(f *Function, v value.Value, fromType *irtypes.
 }
 
 // convertPointerType converts the given integer value to the specified type, emitting code to f.
-func (m *Module) convertPointerType(f *Function, v value.Value, fromType *irtypes.PointerType, to irtypes.Type) value.Value {
+func (m *Module) convertPointerType(v value.Value, to irtypes.Type) value.Value {
 
 	_, ok := to.(*irtypes.IntType)
 	if !ok {
@@ -107,17 +107,6 @@ func (m *Module) convertPointerType(f *Function, v value.Value, fromType *irtype
 	}
 
 	return v
-}
-
-// convertConst  converts the given value to the specified type, emitting code to f.
-// No conversion is made, if v is already of the correct type.
-func (m *Module) convertConst(f *Function, v constant.Constant, to irtypes.Type) constant.Constant {
-	// Early return if v is already of the correct type.
-	from := v.Type()
-	if irtypes.Equal(from, to) {
-		return v
-	}
-	panic(fmt.Sprintf("support for converting from type %T not yet implemented", from))
 }
 
 // isLarger reports whether t has higher precision than u.
@@ -173,14 +162,6 @@ func constOne(typ irtypes.Type) constant.Constant {
 		panic(fmt.Errorf("invalid integer literal type; expected *types.IntType, got %T", typ))
 	}
 	return constant.NewInt(intType, 1)
-}
-
-// isTentativeDef reports whether the given global variable or function
-// declaration is a tentative definition.
-func isTentativeDef(n ast.Decl) bool {
-	ident := n.Name()
-	def := ident.Decl.Name()
-	return !ident.Tok.Position.Equals(&def.Tok.Position)
 }
 
 // genUnique generates a unique local variable name based on the given identifier.

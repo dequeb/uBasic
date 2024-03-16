@@ -189,7 +189,7 @@ func evalBasicLit(node *ast.BasicLit) object.Object {
 }
 
 func evalFile(node *ast.File, env *object.Environment) object.Object {
-	return evalBody(node.StatementLists, env, "")
+	return evalBody(node.Body, env, "")
 }
 
 var errorActive = false

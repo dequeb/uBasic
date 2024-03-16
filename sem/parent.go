@@ -28,7 +28,7 @@ func checkParents(file *ast.File) error {
 		// if node has a parent, return nil
 		return nil
 	}
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		if err := astutil.Walk(&stmtList, f); err != nil {
 			return err
 		}
@@ -113,8 +113,8 @@ func setParent(node ast.Node, parent ast.Node) error {
 		setParent(n.Expression, n)
 	case *ast.File:
 		n.SetParent(parent)
-		for i := range n.StatementLists {
-			setParent(&n.StatementLists[i], n)
+		for i := range n.Body {
+			setParent(&n.Body[i], n)
 		}
 	case *ast.FuncDecl:
 		n.SetParent(parent)

@@ -12,7 +12,7 @@ import (
 // A File represents a µBASIC source file.
 type File struct {
 	// Top-level declarations.
-	StatementLists []StatementList
+	Body []StatementList
 	// File name.
 	Name string
 	// parent node
@@ -1063,7 +1063,7 @@ func (n *ExprStmt) String() string {
 
 func (n *File) String() string {
 	buf := strings.Builder{}
-	for _, node := range n.StatementLists {
+	for _, node := range n.Body {
 		buf.WriteString(node.String())
 	}
 	return buf.String()
@@ -1504,8 +1504,8 @@ func (n *ExprStmt) Token() *token.Token {
 
 // Token returns the first token of the Node
 func (n *File) Token() *token.Token {
-	if len(n.StatementLists) > 0 {
-		return n.StatementLists[0].Token()
+	if len(n.Body) > 0 {
+		return n.Body[0].Token()
 	}
 	return nil
 }

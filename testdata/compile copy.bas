@@ -156,8 +156,8 @@ Call while1()
 
 
 
-Function times2(n As long)
-    times2 = n * 2
+Function times2(n As long) as Long
+    let times2 = n * 2
 end Function
 
-print time2(10)
+print times2(10)

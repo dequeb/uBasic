@@ -814,12 +814,6 @@ func resolve(file *ast.File, scopes map[ast.Node]*Scope) error {
 			if fn, ok := n.(ast.FuncOrSub); ok {
 				scope = NewScope(scope)
 				scopes[fn] = scope
-				// for _, param := range fn.GetParams() {
-				// 	// add parameters to the function scope
-				// 	if err := scope.Insert(&param); err != nil {
-				// 		return err
-				// 	}
-				// }
 				// add the function to the scope, for return resolution
 				if err := scope.Insert(n); err != nil {
 					return err

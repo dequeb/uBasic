@@ -208,7 +208,7 @@ func walkFile(file *ast.File, before, after func(ast.Node) error) error {
 	if err := before(file); err != nil {
 		return err
 	}
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		if err := WalkBeforeAfter(&stmtList, before, after); err != nil {
 			return err
 		}

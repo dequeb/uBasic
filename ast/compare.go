@@ -330,11 +330,11 @@ func (n *File) EqualsNode(node Node) Node {
 		return n
 	}
 
-	if len(n.StatementLists) != len(n2.StatementLists) {
+	if len(n.Body) != len(n2.Body) {
 		return n
 	}
-	for i, v := range n.StatementLists {
-		res := v.EqualsNode(&n2.StatementLists[i])
+	for i, v := range n.Body {
+		res := v.EqualsNode(&n2.Body[i])
 		if res != nil {
 			return res
 		}

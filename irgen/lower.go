@@ -22,7 +22,6 @@ import (
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
-	"github.com/llir/llvm/ir/types"
 	irtypes "github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
@@ -70,7 +69,7 @@ func gen(file *ast.File, info *sem.Info) *ir.Module {
 	// m.genInternals()
 
 	// process function and sub declarations
-	for _, statementList := range file.StatementLists {
+	for _, statementList := range file.Body {
 		for _, statement := range statementList.Statements {
 			switch statement := statement.(type) {
 			case *ast.DimDecl:
@@ -93,15 +92,15 @@ func gen(file *ast.File, info *sem.Info) *ir.Module {
 
 	// process main function
 	// main params
-	I8PtrPtr := types.NewPointer(types.I8Ptr)
-	params := []*ir.Param{ir.NewParam("argc", types.I32), ir.NewParam("argv", I8PtrPtr)}
+	I8PtrPtr := irtypes.NewPointer(irtypes.I8Ptr)
+	params := []*ir.Param{ir.NewParam("argc", irtypes.I32), ir.NewParam("argv", I8PtrPtr)}
 	f := NewFunc("main", irtypes.I32, params...)
 	dbg.Printf("create function declaration: %v", "main")
 
 	// Generate function body.
 	dbg.Printf("create function definition: main")
 	mainParams := []ast.ParamItem{}
-	m.funcBody(f, mainParams, file.StatementLists)
+	m.funcBody(f, mainParams, file.Body, nil)
 	return m.Module
 }
 
@@ -120,7 +119,7 @@ func (m *Module) funcDecl(n *ast.FuncDecl) {
 	typ := toIrType(uBasicType)
 	sig, ok := typ.(*irtypes.FuncType)
 	if !ok {
-		panic(fmt.Sprintf("invalid function type; expected *types.FuncType, got %T", typ))
+		panic(fmt.Sprintf("invalid function type; expected *irtypes.FuncType, got %T", typ))
 	}
 	var params []*ir.Param
 	for i, p := range n.FuncType.Params {
@@ -139,7 +138,7 @@ func (m *Module) funcDecl(n *ast.FuncDecl) {
 
 	// Generate function body.
 	dbg.Printf("create function definition: %v", n)
-	m.funcBody(f, n.FuncType.Params, n.Body)
+	m.funcBody(f, n.FuncType.Params, n.Body, n.FuncName)
 }
 
 // subDecl lowers the given sub declaration to LLVM IR, emitting code to m.
@@ -166,12 +165,12 @@ func (m *Module) subDecl(n *ast.SubDecl) {
 
 	// Generate function body.
 	dbg.Printf("create subroutine definition: %v", n)
-	m.funcBody(f, n.SubType.Params, n.Body)
+	m.funcBody(f, n.SubType.Params, n.Body, nil)
 }
 
 // funcBody lowers the given function declaration to LLVM IR, emitting code to
 // m.
-func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.StatementList) {
+func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.StatementList, resultIdentifier *ast.Identifier) {
 	// Initialize function body.
 	f.startBody()
 
@@ -200,13 +199,20 @@ func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.Statem
 			}
 			f.setIdentValue(ident, p)
 		}
+		// Emit local variable declaration for result identifier.
+		if resultIdentifier != nil {
+			result := f.currentBlock.NewAlloca(f.Sig.RetType)
+			f.currentBlock.NewStore(constZero(f.Sig.RetType), result)
+			dbg.Printf("create result identifier: %v", resultIdentifier)
+			f.setIdentValue(resultIdentifier, result)
+		}
 	}
 
 	// Generate function body.
 	m.BodyStmt(f, body)
 
 	// Finalize function body.
-	if err := m.endBody(f); err != nil {
+	if err := m.endBody(f, resultIdentifier); err != nil {
 		panic(fmt.Sprintf("unable to finalize function body; %v", err))
 	}
 
@@ -278,7 +284,7 @@ func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
 		if err != nil {
 			panic("error converting string to int")
 		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewInt(types.I32, val))
+		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewInt(irtypes.I32, val))
 		cnst.Immutable = true
 		m.setIdentValue(node.ConstName, cnst)
 	case "long":
@@ -286,7 +292,7 @@ func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
 		if err != nil {
 			panic("error converting string to long")
 		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewInt(types.I64, val))
+		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewInt(irtypes.I64, val))
 		cnst.Immutable = true
 		m.setIdentValue(node.ConstName, cnst)
 	case "single", "currency":
@@ -294,7 +300,7 @@ func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
 		if err != nil {
 			panic("error converting string to float")
 		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(types.Float, val))
+		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Float, val))
 		cnst.Immutable = true
 		m.setIdentValue(node.ConstName, cnst)
 	case "double":
@@ -302,7 +308,7 @@ func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
 		if err != nil {
 			panic("error converting string to double")
 		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(types.Double, val))
+		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Double, val))
 		cnst.Immutable = true
 		m.setIdentValue(node.ConstName, cnst)
 	case "boolean":
@@ -313,7 +319,7 @@ func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
 		m.newGlobalStringConstant(value, node.ConstName.Name)
 	case "date":
 		floatDate := FromDateStringToFloat(value)
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(types.Double, floatDate))
+		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Double, floatDate))
 		cnst.Immutable = true
 		m.setIdentValue(node.ConstName, cnst)
 	default:
@@ -382,7 +388,7 @@ func (m *Module) localConstDecl(f *Function, cnst *ast.ConstDeclItem) {
 		switch cnst.ConstValue.(*ast.BasicLit).Kind {
 		case token.LongLit:
 			// %a = alloca i32
-			a := f.currentBlock.NewAlloca(types.I64)
+			a := f.currentBlock.NewAlloca(irtypes.I64)
 			a.SetName(cnst.ConstName.Name)
 			// get value
 			env := object.NewEnvironment()
@@ -396,7 +402,7 @@ func (m *Module) localConstDecl(f *Function, cnst *ast.ConstDeclItem) {
 			}
 
 			// store i32 32, i32* %
-			f.currentBlock.NewStore(constant.NewInt(types.I64, Value), a)
+			f.currentBlock.NewStore(constant.NewInt(irtypes.I64, Value), a)
 		}
 	}
 
@@ -587,7 +593,7 @@ func (m *Module) basicLit(n *ast.BasicLit) value.Value {
 		floatType, ok := typ.(*irtypes.FloatType)
 		floatType.Kind = irtypes.FloatKindFloat
 		if !ok {
-			panic(fmt.Errorf("invalid currency literal type; expected *types.FloatType, got %T", typ))
+			panic(fmt.Errorf("invalid currency literal type; expected *irtypes.FloatType, got %T", typ))
 		}
 		// convert currency to float
 		val := n.Value.(string)
@@ -603,7 +609,7 @@ func (m *Module) basicLit(n *ast.BasicLit) value.Value {
 		intType, ok := typ.(*irtypes.IntType)
 		intType.BitSize = 64
 		if !ok {
-			panic(fmt.Errorf("invalid integer literal type; expected *types.IntType, got %T", typ))
+			panic(fmt.Errorf("invalid integer literal type; expected *irtypes.IntType, got %T", typ))
 		}
 		c, err := constant.NewIntFromString(intType, n.Value.(string))
 		if err != nil {
@@ -614,7 +620,7 @@ func (m *Module) basicLit(n *ast.BasicLit) value.Value {
 		floatType, ok := typ.(*irtypes.FloatType)
 		floatType.Kind = irtypes.FloatKindDouble
 		if !ok {
-			panic(fmt.Errorf("invalid float literal type; expected *types.FloatType, got %T", typ))
+			panic(fmt.Errorf("invalid float literal type; expected *irtypes.FloatType, got %T", typ))
 		}
 		c, err := constant.NewFloatFromString(floatType, n.Value.(string))
 		if err != nil {
@@ -633,7 +639,7 @@ func (m *Module) basicLit(n *ast.BasicLit) value.Value {
 		floatType, ok := typ.(*irtypes.FloatType)
 		floatType.Kind = irtypes.FloatKindDouble
 		if !ok {
-			panic(fmt.Errorf("invalid integer literal type; expected *types.IntType, got %T", typ))
+			panic(fmt.Errorf("invalid integer literal type; expected *irtypes.IntType, got %T", typ))
 		}
 		// convert date to float
 		numSecs := FromDateStringToFloat(n.Value.(string))
@@ -808,16 +814,16 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 		return f.currentBlock.NewPhi(incs...)
 	// =
 	case token.Assign:
-		y := m.expr(f, n.Right)
-		switch expr := n.Left.(type) {
+		right := m.expr(f, n.Right)
+		switch left := n.Left.(type) {
 		case *ast.Identifier:
-			m.identDef(f, expr, y)
+			m.identDef(f, left, right)
 			// case *ast.CallOrIndexExpr:
 			// 	m.indexExprDef(f, expr, y)
 		default:
-			panic(fmt.Sprintf("support for assignment to type %T not yet implemented", expr))
+			panic(fmt.Sprintf("support for assignment to type %T not yet implemented", left))
 		}
-		return y
+		return right
 	case token.Concat:
 		// -----------------------------------------------------------
 		// gc := m.LookupGlobal("gc")
@@ -853,7 +859,7 @@ func (m *Module) callExpr(f *Function, callOrIndexExpr *ast.CallOrIndexExpr) val
 	typ := toIrType(typ0)
 	sig, ok := typ.(*irtypes.FuncType)
 	if !ok {
-		panic(fmt.Sprintf("invalid function type; expected *types.FuncType, got %T", typ))
+		panic(fmt.Sprintf("invalid function type; expected *irtypes.FuncType, got %T", typ))
 	}
 	params := sig.Params
 	result := sig.RetType
@@ -876,6 +882,12 @@ func (m *Module) callExpr(f *Function, callOrIndexExpr *ast.CallOrIndexExpr) val
 
 // ident lowers the given identifier to LLVM IR, emitting code to f.
 func (m *Module) ident(f *Function, ident *ast.Identifier) value.Value {
+	// if variable is a local variable of the name of the function
+	if ident.Name == f.Name() {
+		pos := ident.Decl.Name().Tok.Position.Absolute
+		return f.idents[pos]
+	}
+
 	switch typ := m.typeOf(ident).(type) {
 	case *irtypes.ArrayType:
 		array := m.valueFromIdent(f, ident)
@@ -928,16 +940,15 @@ func (m *Module) identUse(f *Function, ident *ast.Identifier) value.Value {
 	return f.currentBlock.NewLoad(elemType, v)
 }
 
-// identDef lowers the given identifier definition to LLVM IR, emitting code to
-// f.
+// identDef lowers the given identifier definition to LLVM IR, emitting code to f.
 func (m *Module) identDef(f *Function, ident *ast.Identifier, v value.Value) {
-	// i8 := types.I8
-	// i8ptr := types.NewPointer(i8)
+	// i8 := irtypes.I8
+	// i8ptr := irtypes.NewPointer(i8)
 
 	addr := m.ident(f, ident)
 	addrType, ok := addr.Type().(*irtypes.PointerType)
 	if !ok {
-		panic(fmt.Sprintf("invalid pointer type; expected *types.PointerType, got %T", addr.Type()))
+		panic(fmt.Sprintf("invalid pointer type; expected *irtypes.PointerType, got %T", addr.Type()))
 	}
 	v = m.convert(f, v, addrType.ElemType)
 	// if string we need to allocate memory for it
@@ -1037,7 +1048,7 @@ func (m *Module) identDef(f *Function, ident *ast.Identifier, v value.Value) {
 // 	addr := m.indexExpr(f, n)
 // 	addrType, ok := addr.Type().(*irtypes.PointerType)
 // 	if !ok {
-// 		panic(fmt.Sprintf("invalid pointer type; expected *types.PointerType, got %T", addr.Type()))
+// 		panic(fmt.Sprintf("invalid pointer type; expected *irtypes.PointerType, got %T", addr.Type()))
 // 	}
 // 	v = m.convert(f, v, addrType.ElemType)
 // 	f.curBlock.NewStore(v, addr)

@@ -120,12 +120,12 @@ func (p *Parser) peekTokenIs(n int, k token.Kind) bool {
 
 func (p *Parser) ParseFile() *ast.File {
 	file := &ast.File{}
-	file.StatementLists = []ast.StatementList{}
+	file.Body = []ast.StatementList{}
 
 	for p.currentToken().Kind != token.EOF {
 		stmtList := p.ParseStatementList(false, false)
 		if stmtList != nil {
-			file.StatementLists = append(file.StatementLists, *stmtList)
+			file.Body = append(file.Body, *stmtList)
 		} else {
 			return nil
 		}

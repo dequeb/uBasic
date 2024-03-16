@@ -120,6 +120,9 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 					panic("unknown identifier")
 				}
 			}
+		case *ast.CallOrIndexExpr:
+			val := m.expr(f, arg)
+			m.printValue(f, arg, val)
 		default:
 			val := m.expr(f, arg)
 			m.printValue(f, arg, val)
@@ -146,6 +149,11 @@ func (m *Module) printValue(f *Function, arg ast.Expression, val value.Value) {
 	printf := m.LookupFunction("printf")
 
 	astType, _ := arg.Type()
+	if funcType, ok := astType.(*uBasictypes.Func); ok {
+		// get the function type
+		astType = funcType.Result
+	}
+
 	var format string
 	switch astType.(*uBasictypes.Basic).Kind {
 	case uBasictypes.Integer:
@@ -188,7 +196,6 @@ func (m *Module) printValue(f *Function, arg ast.Expression, val value.Value) {
 // toIrType converts the given uBasic type to the corresponding LLVM IR type.
 func toIrType(n uBasictypes.Type) types.Type {
 	var t types.Type
-	var err error
 	switch uBasicType := n.(type) {
 	case *uBasictypes.Basic:
 		switch uBasicType.Kind {
@@ -244,9 +251,6 @@ func toIrType(n uBasictypes.Type) types.Type {
 		t = typ
 	default:
 		panic(fmt.Sprintf("support for translating type %T not yet implemented.", uBasicType))
-	}
-	if err != nil {
-		panic(err)
 	}
 	if t == nil {
 		panic(fmt.Errorf("conversion failed: %#v", n))

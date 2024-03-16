@@ -559,7 +559,7 @@ func colorEOL() richtext.SpanStyle {
 // colorFile returns the color of a file.
 func colorFile(n *ast.File) []richtext.SpanStyle {
 	var styles []richtext.SpanStyle
-	for _, node := range n.StatementLists {
+	for _, node := range n.Body {
 		styles = append(styles, colorText(&node)...)
 	}
 	return styles

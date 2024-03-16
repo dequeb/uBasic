@@ -83,7 +83,7 @@ func (f *Function) startBody() {
 }
 
 // endBody finalizes the generation of the function body.
-func (m *Module) endBody(f *Function) error {
+func (m *Module) endBody(f *Function, resultIdentifier *ast.Identifier) error {
 	if block := f.currentBlock; block != nil && block.Term == nil {
 		switch {
 		case f.Func.Name() == "main":
@@ -113,12 +113,16 @@ func (m *Module) endBody(f *Function) error {
 				termRet := ir.NewRet(nil)
 				block.SetTerm(termRet)
 			default:
-				// The semantic analysis checker guarantees that all branches of
-				// non-void functions end with return statements. Therefore, if we
-				// reach the current basic block doesn't have a terminator at the
-				// end of the function body, it must be unreachable.
-				termUnreachable := ir.NewUnreachable()
-				block.SetTerm(termUnreachable)
+				declPos := resultIdentifier.Decl.Name().Token().Position.Absolute
+
+				// is it local or global
+				if value1, ok := f.idents[declPos]; ok {
+					variableValue := f.currentBlock.NewLoad(result, value1)
+					termRet := ir.NewRet(variableValue)
+					block.SetTerm(termRet)
+				} else {
+					panic("unknown identifier")
+				}
 			}
 		}
 	}

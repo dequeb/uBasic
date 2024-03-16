@@ -26,8 +26,8 @@ func TestDimStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 7 {
-		t.Fatalf("file.Statements does not contain 7 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 7 {
+		t.Fatalf("file.Statements does not contain 7 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -44,7 +44,7 @@ func TestDimStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testDimStatement(t, stmt, tt.expectedIdentifier, tt.expectedType) {
 			return
@@ -95,8 +95,8 @@ func TestConstStatement(t *testing.T) {
 	if file == nil {
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 3 {
-		t.Fatalf("file.Statements does not contain 3 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 3 {
+		t.Fatalf("file.Statements does not contain 3 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -114,7 +114,7 @@ func TestConstStatement(t *testing.T) {
 	}
 
 	var test int
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		for _, stmt := range stmtList.Statements {
 			if !testConstStatement(t, stmt, tests[test].expectedIdentifier, tests[test].expectedType, tests[test].expectedValue) {
 				return
@@ -177,8 +177,8 @@ func TestEnumStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 1 {
-		t.Fatalf("file.Statements does not contain 1 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 1 {
+		t.Fatalf("file.Statements does not contain 1 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -189,7 +189,7 @@ func TestEnumStatement(t *testing.T) {
 	}
 
 	var test int
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		for _, stmt := range stmtList.Statements {
 			if !testEnumStatement(t, stmt, tests[test].expectedIdentifier, tests[test].expectedValues) {
 				return
@@ -257,8 +257,8 @@ func TestFunctionStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 3 {
-		t.Fatalf("file.Statements does not contain 3 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 3 {
+		t.Fatalf("file.Statements does not contain 3 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -272,7 +272,7 @@ func TestFunctionStatement(t *testing.T) {
 	}
 
 	var test int
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		for _, stmt := range stmtList.Statements {
 			// only validate first statement of each line
 			if !testFunctionStatement(t, stmt, tests[test].expectedIdentifier, tests[test].expectedParams, tests[test].expectedType) {
@@ -347,8 +347,8 @@ end sub`
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 3 {
-		t.Fatalf("file.Statements does not contain 3 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 3 {
+		t.Fatalf("file.Statements does not contain 3 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -361,7 +361,7 @@ end sub`
 	}
 
 	var test int
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		for _, stmt := range stmtList.Statements {
 			// only validate first statement of each line
 			if !testSubStatement(t, stmt, tests[test].expectedIdentifier, tests[test].expectedParams) {
@@ -426,8 +426,8 @@ func TestIfStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 1 {
-		t.Fatalf("file.Statements does not contain 1 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 1 {
+		t.Fatalf("file.Statements does not contain 1 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -441,7 +441,7 @@ func TestIfStatement(t *testing.T) {
 	}
 
 	var test int
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		for _, stmt := range stmtList.Statements {
 			// only validate first statement of each line
 			if !testIfStatement(t, stmt, tests[test].expectedExpression, tests[test].expectedStatements, tests[test].expectedElsifExpression, tests[test].expectedElsifStatements, tests[test].expectedElseStatements) {
@@ -535,8 +535,8 @@ func TestForStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 2 {
-		t.Fatalf("file.Statements does not contain 2 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 2 {
+		t.Fatalf("file.Statements does not contain 2 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -548,7 +548,7 @@ func TestForStatement(t *testing.T) {
 	}
 
 	var test int
-	for _, stmtList := range file.StatementLists {
+	for _, stmtList := range file.Body {
 		for _, stmt := range stmtList.Statements {
 			// only validate first statement of each line
 			if !testForStatement(t, stmt, tests[test].expectedExpression, tests[test].expectedStatements) {
@@ -611,8 +611,8 @@ func TestSpecialStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 7 {
-		t.Fatalf("file.Statements does not contain 7 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 7 {
+		t.Fatalf("file.Statements does not contain 7 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -630,7 +630,7 @@ func TestSpecialStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testSpecialStatement(t, stmt, tt.expectedKeyword1, tt.expectedKeyword2, tt.expectedArgs) {
 			return
@@ -698,8 +698,8 @@ func TestSelectStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 1 {
-		t.Fatalf("file.Statements does not contain 1 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 1 {
+		t.Fatalf("file.Statements does not contain 1 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -710,7 +710,7 @@ func TestSelectStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testSelectStatement(t, stmt, tt.expectedCondition, tt.expectedCases) {
 			return
@@ -782,8 +782,8 @@ func TestDoStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 4 {
-		t.Fatalf("file.Statements does not contain 4 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 4 {
+		t.Fatalf("file.Statements does not contain 4 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -797,7 +797,7 @@ func TestDoStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testDoStatement(t, stmt, tt.expectedType, tt.expectedCondition) {
 			return
@@ -865,8 +865,8 @@ call MsgBox("This house is affordable.")`
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 2 {
-		t.Fatalf("file.Statements does not contain 2 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 2 {
+		t.Fatalf("file.Statements does not contain 2 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -878,7 +878,7 @@ call MsgBox("This house is affordable.")`
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testSubCallStatement(t, stmt, tt.ExpectedSubName, tt.expectedParams) {
 			return
@@ -942,8 +942,8 @@ func TestExpressionStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 8 {
-		t.Fatalf("file.Statements does not contain 8 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 8 {
+		t.Fatalf("file.Statements does not contain 8 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -961,7 +961,7 @@ func TestExpressionStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testExpressionStatement(t, stmt, tt.ExpectedLeft, tt.expectedRight) {
 			return
@@ -1021,8 +1021,8 @@ func TestErrorHandlingStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 5 {
-		t.Fatalf("file.Statements does not contain 5 statements. got=%d", len(file.StatementLists))
+	if len(file.Body) != 5 {
+		t.Fatalf("file.Statements does not contain 5 statements. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -1038,7 +1038,7 @@ func TestErrorHandlingStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testErrorHandlingStatement(t, stmt, tt.exprectedOnError, tt.ExpectedKeyword, tt.ExpectedLabel) {
 			return
@@ -1095,8 +1095,8 @@ func TestLabelStatement(t *testing.T) {
 		}
 		t.Fatalf("ParseFile() returned nil")
 	}
-	if len(file.StatementLists) != 1 {
-		t.Fatalf("file.Statements does not contain 1 statement. got=%d", len(file.StatementLists))
+	if len(file.Body) != 1 {
+		t.Fatalf("file.Statements does not contain 1 statement. got=%d", len(file.Body))
 	}
 
 	tests := []struct {
@@ -1106,7 +1106,7 @@ func TestLabelStatement(t *testing.T) {
 	}
 
 	for i, tt := range tests {
-		stmt := file.StatementLists[i].Statements[0] // only validate first statement of each line
+		stmt := file.Body[i].Statements[0] // only validate first statement of each line
 
 		if !testLabelStatement(t, stmt, tt.expectedLabel) {
 			return
