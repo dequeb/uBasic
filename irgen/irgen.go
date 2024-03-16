@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"uBasic/ast"
+	"uBasic/object"
 	"uBasic/sem"
 
 	"github.com/llir/llvm/ir"
@@ -29,6 +30,8 @@ type Module struct {
 	idents map[int]value.Value
 	// SkipLocalVariables is a indicator to skip local variable declaration.
 	SkipLocalVariables bool
+	// constant values
+	env *object.Environment
 }
 
 // NewModule returns a new module generator.
@@ -38,6 +41,7 @@ func NewModule(info *sem.Info) *Module {
 		Module: m,
 		info:   info,
 		idents: make(map[int]value.Value),
+		env:    object.NewEnvironment(),
 	}
 }
 
@@ -83,10 +87,13 @@ func (m *Module) endBody(f *Function) error {
 	if block := f.currentBlock; block != nil && block.Term == nil {
 		switch {
 		case f.Func.Name() == "main":
+			// -----------------------------------------------------------
 			// must stop the garbage collector
-			gc_start := m.LookupFunction(".gc_stop")
-			gc := m.LookupGlobal(".gc")
-			f.currentBlock.NewCall(gc_start, gc)
+			// gc_stop:= m.LookupFunction("gc_stop")
+			// gc := m.LookupGlobal("gc")
+			// f.currentBlock.NewCall(gc_stop, gc)
+			// -----------------------------------------------------------
+
 			// From C11 spec $5.1.2.2.3.
 			//
 			// "If the return type of the main function is a type compatible with

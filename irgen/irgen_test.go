@@ -235,14 +235,12 @@ func TestIfGEN(*testing.T) {
 	main := m.NewFunc("main", types.I32)
 	entry := main.NewBlock("")
 
-	// make block ids unique
-	lineNumber := "243"
 	// create a new block for the true case
-	ifTrue := main.NewBlock("if.true" + lineNumber)
+	ifTrue := main.NewBlock("")
 	// create a new block for the false case
-	ifFalse := main.NewBlock("if.false" + lineNumber)
+	ifFalse := main.NewBlock("")
 	// create a new block to return result
-	ifEnd := main.NewBlock("if.end" + lineNumber)
+	ifEnd := main.NewBlock("")
 
 	// if ten == 1 then
 	//     ten = ten - 1
@@ -279,5 +277,24 @@ func TestIfGEN(*testing.T) {
 
 	// Return 0 from main.
 	ifEnd.NewRet(constant.NewInt(types.I32, 0))
+	fmt.Println(m)
+}
+
+func TestMultFloat(*testing.T) {
+	// Create a new LLVM IR module.
+	m := ir.NewModule()
+	// --------------------------------------------------------
+	// main ()
+	// --------------------------------------------------------
+	main := m.NewFunc("main", types.I32)
+	entry := main.NewBlock("")
+
+	tmp0 := entry.NewAlloca(types.Double)
+	entry.NewStore(constant.NewFloat(types.Double, 10.9), tmp0)
+	tmp1 := entry.NewAlloca(types.Double)
+	entry.NewStore(constant.NewFloat(types.Double, 0.98), tmp1)
+	entry.NewMul(entry.NewLoad(types.Double, tmp0), entry.NewLoad(types.Double, tmp1))
+
+	entry.NewRet(constant.NewInt(types.I32, 0))
 	fmt.Println(m)
 }

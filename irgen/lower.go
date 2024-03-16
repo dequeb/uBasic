@@ -176,15 +176,18 @@ func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.Statem
 	f.startBody()
 
 	if f.Name() == "main" {
-		param := f.Params[0]
-		tmp0 := f.currentBlock.NewAlloca(param.Type())
-		f.currentBlock.NewStore(param, tmp0)
-		dbg.Printf("create function parameter: %v", param)
-
+		// -----------------------------------------------------------
 		// initialize garbage collector
-		gc_start := m.LookupFunction(".gc_start")
-		gc := m.LookupGlobal(".gc")
-		f.currentBlock.NewCall(gc_start, gc, tmp0)
+		//
+		// param := f.Params[0]
+		// tmp0 := f.currentBlock.NewAlloca(param.Type())
+		// f.currentBlock.NewStore(param, tmp0)
+		// dbg.Printf("create function parameter: %v", param)
+		//
+		// gc_start := m.LookupFunction("gc_start")
+		// gc := m.LookupGlobal("gc")
+		// f.currentBlock.NewCall(gc_start, gc, tmp0)
+		// -----------------------------------------------------------
 	} else {
 		// Emit local variable declarations for function parameters.
 		for i, param := range f.Params {
@@ -259,9 +262,14 @@ func (m *Module) globalVarDecl(n ast.VarDecl) {
 // --- [ Global constant declaration ] -----------------------------------------
 
 func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
-	env := object.NewEnvironment()
-	Object := eval.Eval(nil, node.ConstValue, env)
+	// all constants are evaluated at compile time
+	Object := eval.Eval(nil, node.ConstValue, m.env)
+	m.env.Set(node.ConstName.Name, Object)
+
 	value := Object.String()
+	if Object.Type() == object.ERROR_OBJ {
+		panic("error evaluating constant : " + Object.String())
+	}
 
 	typ := strings.ToLower(node.ConstType.Token().Literal)
 	switch typ {
@@ -329,10 +337,16 @@ func (m *Module) newGlobalStringConstant(val, name string) *ir.Global {
 }
 
 func (m *Module) cleanString(s string) string {
-	basicText := strings.Trim(s, "\"")
-	basicText = strings.Replace(basicText, "\"\"", "\"", -1)
-	basicText = strings.Replace(basicText, "\x00", "", -1)
-	return basicText
+	if len(s) > 0 && s[0] == '"' {
+		s = s[1:]
+	}
+	if len(s) > 0 && s[len(s)-1] == '"' {
+		s = s[:len(s)-1]
+	}
+
+	s = strings.Replace(s, "\"\"", "\"", -1)
+	s = strings.Replace(s, "\x00", "", -1)
+	return s
 }
 
 // === [ Function scope ] ======================================================
@@ -642,61 +656,109 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	case token.Add:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewAdd(x, y)
-
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewAdd(x, y)
+		case "float", "double":
+			return f.currentBlock.NewFAdd(x, y)
+		}
 	// -
 	case token.Minus:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewSub(x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewSub(x, y)
+		case "float", "double":
+			return f.currentBlock.NewFSub(x, y)
+		}
 
 	// *
 	case token.Mul:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewMul(x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewMul(x, y)
+		case "float", "double":
+			return f.currentBlock.NewFMul(x, y)
+		}
 
 	// /
 	case token.Div:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewSDiv(x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewSDiv(x, y)
+		case "float", "double":
+			return f.currentBlock.NewFDiv(x, y)
+		}
 
 	// <
 	case token.Lt:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewICmp(enum.IPredSLT, x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewICmp(enum.IPredSLT, x, y)
+		case "float", "double":
+			return f.currentBlock.NewFCmp(enum.FPredOLT, x, y)
+		}
 
-	// >
+		// >
 	case token.Gt:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewICmp(enum.IPredSGT, x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewICmp(enum.IPredSGT, x, y)
+		case "float", "double":
+			return f.currentBlock.NewFCmp(enum.FPredOGT, x, y)
+		}
 
 	// <=
 	case token.Le:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewICmp(enum.IPredSLE, x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewICmp(enum.IPredSLE, x, y)
+		case "float", "double":
+			return f.currentBlock.NewFCmp(enum.FPredOLE, x, y)
+		}
 
 	// >=
 	case token.Ge:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewICmp(enum.IPredSGE, x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewICmp(enum.IPredSGE, x, y)
+		case "float", "double":
+			return f.currentBlock.NewFCmp(enum.FPredOGE, x, y)
+		}
 
 	// <>
 	case token.Neq:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewICmp(enum.IPredNE, x, y)
-
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewICmp(enum.IPredNE, x, y)
+		case "float", "double":
+			return f.currentBlock.NewFCmp(enum.FPredONE, x, y)
+		}
 	// ==
 	case token.Eq:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
 		x, y = m.implicitConversion(f, x, y)
-		return f.currentBlock.NewICmp(enum.IPredEQ, x, y)
+		switch x.Type().String() {
+		case "i32", "i64":
+			return f.currentBlock.NewICmp(enum.IPredEQ, x, y)
+		case "float", "double":
+			return f.currentBlock.NewFCmp(enum.FPredOEQ, x, y)
+		}
 
 	// And
 	case token.And:
@@ -721,23 +783,65 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 		inc = ir.NewIncoming(y, trueBranch.Block)
 		incs = append(incs, inc)
 		return f.currentBlock.NewPhi(incs...)
+	// or
+	case token.Or:
+		x := m.cond(f, n.Left)
 
+		start := f.currentBlock
+		falseBranch := f.NewBlock("")
+		end := f.NewBlock("")
+		termCondBr := ir.NewCondBr(x, end.Block, falseBranch.Block)
+		f.currentBlock.SetTerm(termCondBr)
+		f.currentBlock = falseBranch
+
+		y := m.cond(f, n.Right)
+		termBr := ir.NewBr(end.Block)
+		falseBranch.SetTerm(termBr)
+		f.currentBlock = end
+
+		var incs []*ir.Incoming
+		one := constOne(irtypes.I1)
+		inc := ir.NewIncoming(one, start.Block)
+		incs = append(incs, inc)
+		inc = ir.NewIncoming(y, falseBranch.Block)
+		incs = append(incs, inc)
+		return f.currentBlock.NewPhi(incs...)
 	// =
 	case token.Assign:
 		y := m.expr(f, n.Right)
 		switch expr := n.Left.(type) {
 		case *ast.Identifier:
 			m.identDef(f, expr, y)
-		// case *ast.CallOrIndexExpr:
-		// 	m.indexExprDef(f, expr, y)
+			// case *ast.CallOrIndexExpr:
+			// 	m.indexExprDef(f, expr, y)
 		default:
 			panic(fmt.Sprintf("support for assignment to type %T not yet implemented", expr))
 		}
 		return y
+	case token.Concat:
+		// -----------------------------------------------------------
+		// gc := m.LookupGlobal("gc")
+		// -----------------------------------------------------------
 
+		// allocate heap memory for intermediate strings
+		// calculate length of string
+		x := m.expr(f, n.Left)
+		y := m.expr(f, n.Right)
+		lengthX := f.currentBlock.NewCall(m.LookupFunction("strlen"), x)
+		lengthY := f.currentBlock.NewCall(m.LookupFunction("strlen"), y)
+		length := f.currentBlock.NewAdd(lengthX, lengthY)
+		// -----------------------------------------------------------
+		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("gc_malloc"), gc, length)
+		memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
+		// -----------------------------------------------------------
+
+		f.currentBlock.NewCall(m.LookupFunction("strcpy"), memoryBlock, x)
+		f.currentBlock.NewCall(m.LookupFunction("strcat"), memoryBlock, y)
+		return memoryBlock
 	default:
 		panic(fmt.Sprintf("support for binary operator %v not yet implemented", n.OpToken))
 	}
+	panic("unreachable")
 }
 
 // callExpr lowers the given identifier to LLVM IR, emitting code to f.
@@ -847,13 +951,17 @@ func (m *Module) identDef(f *Function, ident *ast.Identifier, v value.Value) {
 		// v contains the loaded address of the source variable
 
 		// calculate length of string
-		length := f.currentBlock.NewCall(m.LookupFunction(".strlen"), v)
+		length := f.currentBlock.NewCall(m.LookupFunction("strlen"), v)
 
+		// -----------------------------------------------------------
 		// allocate heap memory for global strings
-		gc := m.LookupGlobal(".gc")
-		memoryBlock := f.currentBlock.NewCall(m.LookupFunction(".gc_malloc"), gc, length)
+		// gc := m.LookupGlobal("gc")
+		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("gc_malloc"), gc, length)
+		memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
+		// -----------------------------------------------------------
+
 		f.currentBlock.NewStore(memoryBlock, dest)
-		f.currentBlock.NewCall(m.LookupFunction(".strcpy"), memoryBlock, v)
+		f.currentBlock.NewCall(m.LookupFunction("strcpy"), memoryBlock, v)
 	} else {
 		f.currentBlock.NewStore(v, addr)
 	}
@@ -952,21 +1060,11 @@ func (m *Module) unaryExpr(f *Function, n *ast.UnaryExpr) value.Value {
 		return f.currentBlock.NewSub(zero, expr)
 	// Not expr
 	case token.Not:
-		// TODO: Replace `(x != 0) ^ 1` with `x == 0`. Using the former for now to
-		// simplify test cases, as they are generated by Clang.
-
-		// Input:
-		//    int g() {
-		//       int y;
-		//       not y;              // <-- relevant line
-		//    }
-		// Output:
-		//    %2 = icmp ne i32 %1, 0
-		//    %3 = xor i1 %2, true
 		cond := m.cond(f, n.Right)
 		one := constOne(cond.Type())
 		notCond := f.currentBlock.NewXor(cond, one)
-		return f.currentBlock.NewZExt(notCond, m.typeOf(n.Right))
+		return notCond
+		// return f.currentBlock.NewZExt(notCond, m.typeOf(n.Right))
 	default:
 		panic(fmt.Sprintf("support for unary operator %v not yet implemented", n.OpToken))
 	}

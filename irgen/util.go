@@ -16,9 +16,9 @@ import (
 func (m *Module) implicitConversion(f *Function, x, y value.Value) (value.Value, value.Value) {
 	// Implicit conversion.
 	switch {
-	case isLarger(x.Type(), y.Type()):
+	case isLarger(x.Type(), y.Type()) || firstOnlyIsFloat(x.Type(), y.Type()):
 		y = m.convert(f, y, x.Type())
-	case isLarger(y.Type(), x.Type()):
+	case isLarger(y.Type(), x.Type()) || firstOnlyIsFloat(y.Type(), x.Type()):
 		x = m.convert(f, x, y.Type())
 	}
 	return x, y
@@ -127,12 +127,21 @@ func isLarger(t, u irtypes.Type) bool {
 		// Size returns the size of t in number of bits.
 		Size() int
 	}
+
 	if t, ok := t.(Sizer); ok {
 		if u, ok := u.(Sizer); ok {
 			return t.Size() > u.Size()
 		}
 	}
 	return false
+}
+
+// firstOnlyIsFloat reports whether the first type is a floating-point type and
+// the second type is not a floating-point type.
+func firstOnlyIsFloat(t, u irtypes.Type) bool {
+	_, tIsFloat := t.(*irtypes.FloatType)
+	_, uIsFloat := u.(*irtypes.FloatType)
+	return tIsFloat && !uIsFloat
 }
 
 // isRef reports whether the given type is a reference type; e.g. pointer or
