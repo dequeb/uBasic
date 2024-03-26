@@ -480,3 +480,101 @@ func TestException(t *testing.T) {
 	end.NewRet(constant.NewInt(types.I32, 0))
 	fmt.Println(m)
 }
+
+func TestParamArray(t *testing.T) {
+	// Create a new LLVM IR module.
+	m := ir.NewModule()
+
+	// Add external function declaration of printf.
+	printf := m.NewFunc("printf", types.I32, ir.NewParam("", types.NewPointer(types.I8)))
+	printf.Sig.Variadic = true
+
+	// Create a new global variable of type [15]i8 and name it "str".
+	format := constant.NewCharArrayFromString("==> %d \n\x00")
+	formatstr := m.NewGlobalDef("str", format)
+
+	// --------------------------------------------------------
+	// Create a new function varia which returns an i32
+	// that adds the value of an array.
+	varia := m.NewFunc("varia", types.I32, ir.NewParam(".values_0)", types.I32), ir.NewParam("values", types.I32Ptr))
+
+	// define branching labels
+	entry := varia.NewBlock("entry")
+	loopCond := varia.NewBlock("loop.cond")
+	loopBody := varia.NewBlock("loop.body")
+	loopEnd := varia.NewBlock("loop.end")
+
+	// allocate variables
+	total := entry.NewAlloca(types.I32)
+	total.SetName("total")
+	count := entry.NewAlloca(types.I32)
+	count.SetName("count")
+
+	i := entry.NewAlloca(types.I32)
+	i.SetName("i")
+
+	// read parameters
+	entry.NewStore(varia.Params[0], count)
+
+	// initialize i
+	entry.NewStore(constant.NewInt(types.I32, 0), i)
+
+	// initialize total
+	entry.NewStore(constant.NewInt(types.I32, 0), total)
+	entry.NewBr(loopCond)
+
+	// loop condition
+	iVal := loopCond.NewLoad(types.I32, i)
+	countVal := loopCond.NewLoad(types.I32, count)
+	cond := loopCond.NewICmp(enum.IPredULT, iVal, countVal)
+	loopCond.NewCondBr(cond, loopBody, loopEnd)
+
+	// loop body
+	gep := loopBody.NewGetElementPtr(types.I32, varia.Params[1], iVal)
+	tmp := loopBody.NewLoad(types.I32, gep)
+	totalVal := loopBody.NewLoad(types.I32, total)
+	tmp1 := loopBody.NewAdd(tmp, totalVal)
+	loopBody.NewStore(tmp1, total)
+	iVal = loopBody.NewLoad(types.I32, i)
+	inc := loopBody.NewAdd(iVal, constant.NewInt(types.I32, 1))
+	loopBody.NewStore(inc, i)
+	loopBody.NewBr(loopCond)
+
+	// loop end
+	loopEnd.NewRet(loopEnd.NewLoad(types.I32, total))
+
+	// --------------------------------------------------------
+	// main ()
+	// --------------------------------------------------------
+	// Create a new function main which returns an i32.
+	main := m.NewFunc("main", types.I32)
+	entryMain := main.NewBlock("")
+	countMain := constant.NewInt(types.I32, 2)
+	valueType := types.ArrayType{Len: 2, ElemType: types.I32}
+	values := entryMain.NewAlloca(&valueType)
+
+	// initialize array
+	zero := constant.NewInt(types.I64, 0)
+	gep1 := entryMain.NewGetElementPtr(types.I32, values, zero)
+	entryMain.NewStore(constant.NewInt(types.I32, 10), gep1)
+
+	one := constant.NewInt(types.I64, 1)
+	gep2 := entryMain.NewGetElementPtr(types.I32, values, one)
+	entryMain.NewStore(constant.NewInt(types.I32, 20), gep2)
+
+	// print value
+	value1 := entryMain.NewLoad(types.I32, gep1)
+	entryMain.NewCall(printf, formatstr, value1)
+	value2 := entryMain.NewLoad(types.I32, gep2)
+	entryMain.NewCall(printf, formatstr, value2)
+
+	// call varia
+	tmpVaria := entryMain.NewCall(varia, countMain, values)
+
+	// get pointers for printf
+	entryMain.NewCall(printf, formatstr, tmpVaria)
+
+	// Return 0 from main.
+	entryMain.NewRet(constant.NewInt(types.I32, 0))
+	fmt.Println(m)
+}

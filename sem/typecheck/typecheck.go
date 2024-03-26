@@ -244,7 +244,7 @@ func VerifyParameters(call *ast.CallOrIndexExpr, funcOrSubType types.SubOrFunc, 
 	// 2. more parameters than arguments (optional parameters)
 	// 3. more arguments than parameters (paramArray argument)
 	// lets start with the first case
-	if len(call.Args) == len(funcOrSubType.GetParams()) {
+	if len(call.Args) == len(funcOrSubType.GetParams()) && !funcOrSubType.GetParams()[len(funcOrSubType.GetParams())-1].ParamArray {
 		// verify that required parameters are compatible with arguments
 		for i, arg := range call.Args {
 			if !isCompatibleArg(funcOrSubType.GetParams()[i].Type, exprTypes[arg]) {
@@ -267,7 +267,7 @@ func VerifyParameters(call *ast.CallOrIndexExpr, funcOrSubType types.SubOrFunc, 
 		}
 		// third case
 	} else {
-		// no arguments
+		// no arguments or paramArray
 		if len(funcOrSubType.GetParams()) == 0 {
 			return errors.Newf(call.Lparen.Position, "too many arguments for function %q", call.Identifier)
 		}
@@ -287,10 +287,11 @@ func VerifyParameters(call *ast.CallOrIndexExpr, funcOrSubType types.SubOrFunc, 
 
 		// verify that other parameters are compatible with paramArray type
 		paramArray := funcOrSubType.GetParams()[len(funcOrSubType.GetParams())-1]
+		elementType := paramArray.Type.(*types.Array).Type
 		for i := len(funcOrSubType.GetParams()) - 1; i < len(call.Args); i++ {
 			arg := call.Args[i]
-			if !isCompatibleArg(paramArray.Type, exprTypes[arg]) {
-				return errors.Newf(call.Lparen.Position, "incompatible type for parameter array; expected %q, got %q", paramArray.Type, exprTypes[call.Args[len(call.Args)-1]])
+			if !isCompatibleArg(elementType, exprTypes[arg]) {
+				return errors.Newf(call.Lparen.Position, "incompatible type for parameter array; expected %q, got %q", elementType, exprTypes[call.Args[len(call.Args)-1]])
 			}
 		}
 	}

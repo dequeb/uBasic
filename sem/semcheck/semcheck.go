@@ -40,6 +40,10 @@ func Check(file *ast.File) error {
 			if err := checkReturnValueNotAssigned(node); err != nil {
 				return err
 			}
+			// check that a variable is passed as an argument for byref parameters
+			if err := checkByRefArg(node); err != nil {
+				return err
+			}
 		case *ast.BinaryExpr:
 			// check if value is assigned to a constant
 			if err := checkConstAssignment(node); err != nil {
@@ -275,6 +279,30 @@ func checkReturnValueNotAssigned(call *ast.CallOrIndexExpr) error {
 	// check if function call result is used
 	if _, ok := call.GetParent().(*ast.ExprStmt); ok {
 		return errors.Newf(call.Token().Position, "function call does not use return value")
+	}
+	return nil
+}
+
+// checkByRefArg reports an error if the given function call does not pass a variable as an argument for byref parameters.
+func checkByRefArg(call *ast.CallOrIndexExpr) error {
+	// check if function call returns a value
+	callType, err := call.Identifier.Decl.Type()
+	if err != nil {
+		return err
+	}
+	if callType == nil {
+		return nil
+	}
+	paramsDecl := callType.(types.SubOrFunc).GetParams()
+
+	// check if a variable is passed as an argument for byref parameters
+	for i, arg := range call.Args {
+		byref := !paramsDecl[i].ByVal
+		if byref {
+			if _, ok := arg.(*ast.Identifier); !ok {
+				return errors.Newf(arg.Token().Position, "argument %q must be a variable for byref parameter", arg)
+			}
+		}
 	}
 	return nil
 }

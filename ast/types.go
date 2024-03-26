@@ -192,6 +192,8 @@ func NewType(n Node) (types.Type, error) {
 		}
 	case *UserDefinedType:
 		return NewUserDefinedType(n.Identifier.Name), nil
+	case *ParenExpr:
+		return NewType(n.Expr)
 	default:
 		return nil, errors.Newf(n.Token().Position, "support for type %T not yet implemented", n)
 	}
@@ -208,7 +210,7 @@ func NewField(decl *ParamItem) (*types.Field, error) {
 	if decl.VarName != nil {
 		typ.Name = decl.VarName.Name
 	}
-	typ.ByRef = decl.ByVal
+	typ.ByVal = decl.ByVal
 	typ.Optional = decl.Optional
 	typ.ParamArray = decl.ParamArray
 	if decl.DefaultValue != nil {

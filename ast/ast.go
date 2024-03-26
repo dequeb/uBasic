@@ -199,7 +199,7 @@ type (
 		VarName *Identifier
 		// is optional
 		Optional bool
-		// byref
+		// byVal - passed by value
 		ByVal bool
 		// paramArray
 		ParamArray bool
@@ -1324,6 +1324,8 @@ func (n *ParamItem) String() string {
 		buf.WriteString("Optional ")
 	}
 	if n.ByVal {
+		buf.WriteString("ByVal ")
+	} else {
 		buf.WriteString("ByRef ")
 	}
 	if n.ParamArray {

@@ -1894,7 +1894,7 @@ func assignValueToParameters(params []ast.ParamItem, values *[]object.Object, en
 	// 3. number of parameters is greater than the number of values
 
 	// 1. exact number of parameters and values
-	if len(params) == len(*values) {
+	if len(params) == len(*values) && !params[len(params)-1].ParamArray {
 		for i, param := range params {
 			if param.ByVal {
 				// create a copy of the value
@@ -1905,10 +1905,10 @@ func assignValueToParameters(params []ast.ParamItem, values *[]object.Object, en
 		}
 		return nil
 	}
-	// 2. number of parameters is less than the number of values
-	if len(params) < len(*values) {
+	// 2. number of parameters is less or equal than the number of values
+	if len(params) <= len(*values) {
 		for i, param := range params {
-			if i < len(params) {
+			if !param.ParamArray {
 				if param.ByVal {
 					// create a copy of the value
 					env.Set(param.VarName.Name, (*values)[i].Copy())
@@ -1917,23 +1917,20 @@ func assignValueToParameters(params []ast.ParamItem, values *[]object.Object, en
 				}
 			} else {
 				// check if last parameter is an array
-				if param.ParamArray {
-					// calculate the number of elements
-					dimensions := []uint32{uint32(len(*values) - len(params))}
-					// create an array
-					arr := object.NewArray(object.KindToType(param.VarType.Token().Kind), dimensions, param.Token().Position)
-					env.Set(param.VarName.Name, arr)
-					// assign the rest of the values to the array
-					for j := i; j < len(*values); j++ {
-						// get the index
-						index := j - i
-						// build index array
-						indexes := make([]uint32, 1)
-						indexes[0] = uint32(index)
-						// assign the value to the array
-						arr.Set(indexes, (*values)[j])
-					}
-					return nil
+				// calculate the number of elements
+				dimensions := []uint32{uint32(len(*values) - len(params))}
+				// create an array
+				arr := object.NewArray(object.KindToType(param.VarType.Token().Kind), dimensions, param.Token().Position)
+				env.Set(param.VarName.Name, arr)
+				// assign the rest of the values to the array
+				for j := i; j < len(*values); j++ {
+					// get the index
+					index := j - i
+					// build index array
+					indexes := make([]uint32, 1)
+					indexes[0] = uint32(index)
+					// assign the value to the array
+					arr.Set(indexes, (*values)[j])
 				}
 			}
 		}

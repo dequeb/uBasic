@@ -120,7 +120,7 @@ type Field struct {
 	// What is the default value for this field?
 	DefaultValue string
 	// Is field by ref
-	ByRef bool
+	ByVal bool
 	// is field optional
 	Optional bool
 	// is field a parameter array
@@ -136,7 +136,7 @@ func (field *Field) String() string {
 
 func (field *Field) Equal(u Field) bool {
 	return field.Type.Equal(u.Type) && field.Name == u.Name &&
-		field.DefaultValue == u.DefaultValue && field.ByRef == u.ByRef &&
+		field.DefaultValue == u.DefaultValue && field.ByVal == u.ByVal &&
 		field.Optional == u.Optional && field.ParamArray == u.ParamArray
 }
 

@@ -5,6 +5,8 @@ package irgen
 
 import (
 	"fmt"
+	"path/filepath"
+
 	"math/big"
 	"os"
 	"os/exec"
@@ -18,11 +20,11 @@ import (
 	"uBasic/object"
 	"uBasic/sem"
 	"uBasic/token"
+	uBasictypes "uBasic/types"
 
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
-	"github.com/llir/llvm/ir/types"
 	irtypes "github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
@@ -30,11 +32,13 @@ import (
 func GenToFile(file *ast.File, info *sem.Info, filename string) error {
 	// replace extension with .ll
 	filename = strings.TrimSuffix(filename, ".bas")
-	if !strings.HasSuffix(filename, ".ll") {
-		filename += ".ll"
-	}
+	filename = strings.TrimSuffix(filename, ".ll")
+	pwd, _ := os.Getwd()
+	fmt.Println("directory:" + pwd)
+	path := filepath.Dir(filename)
+
 	// create file
-	f, err := os.Create(filename)
+	f, err := os.Create(filename + ".ll")
 	if err != nil {
 		return err
 	}
@@ -42,9 +46,19 @@ func GenToFile(file *ast.File, info *sem.Info, filename string) error {
 	fmt.Fprint(f, gen(file, info, filename).String())
 
 	// run compiler
-	cmd := exec.Command("lli", filename)
+	cmd := exec.Command("llc", "-filetype=obj", filename+".ll")
 	if err = cmd.Run(); err != nil {
-		return err
+		return fmt.Errorf("unable to compile to object file; %v", err)
+	}
+
+	// run linker
+	cmd = exec.Command("clang",
+		filename+".o",
+		path+"/log.o",
+		path+"/gc.o",
+		"-o", filename)
+	if err = cmd.Run(); err != nil {
+		return fmt.Errorf("unable to link object file; %v", err)
 	}
 
 	return nil
@@ -87,7 +101,9 @@ func gen(file *ast.File, info *sem.Info, filename string) *ir.Module {
 	m.SkipLocalVariables = true
 
 	// process main function
-	params := []*ir.Param{} // no command line arguments
+	// params := []*ir.Param{} // no command line arguments
+	params := []*ir.Param{ir.NewParam("argc", irtypes.I32),
+		ir.NewParam("argv", irtypes.NewPointer(irtypes.NewPointer(irtypes.I8)))}
 	f := NewFunc("main", irtypes.I32, params...)
 
 	// Generate function body.
@@ -99,8 +115,7 @@ func gen(file *ast.File, info *sem.Info, filename string) *ir.Module {
 
 // --- [ Function declaration ] ------------------------------------------------
 
-// funcDecl lowers the given function declaration to LLVM IR, emitting code to
-// m.
+// funcDecl lowers the given function declaration to LLVM IR, emitting code to m.
 func (m *Module) funcDecl(n *ast.FuncDecl) {
 	// Generate function signature.
 	ident := n.Name()
@@ -115,19 +130,20 @@ func (m *Module) funcDecl(n *ast.FuncDecl) {
 		panic(fmt.Sprintf("invalid function type; expected *irtypes.FuncType, got %T", typ))
 	}
 	var params []*ir.Param
-	for i, p := range n.FuncType.Params {
-		paramType := sig.Params[i]
+	for _, p := range n.FuncType.Params {
+		astParamType, _ := p.Type()
+		paramType := toIrType(astParamType)
+		if !p.ByVal {
+			paramType = irtypes.NewPointer(paramType)
+		}
 		param := ir.NewParam(p.Name().String(), paramType)
 		params = append(params, param)
-	}
-	f := NewFunc(name, sig.RetType, params...)
-
-	// Emit Variadic attribute: check if last parameter is ParamArray
-	if len(n.FuncType.Params) > 0 {
-		if n.FuncType.Params[len(n.FuncType.Params)-1].ParamArray {
-			f.Sig.Variadic = true
+		if p.ParamArray {
+			size := ir.NewParam(p.Name().String()+"_size", irtypes.I32)
+			params = append(params, size)
 		}
 	}
+	f := NewFunc(name, sig.RetType, params...)
 
 	if !astutil.IsDef(n) {
 		dbg.Printf("create function declaration: %v", n)
@@ -150,18 +166,20 @@ func (m *Module) subDecl(n *ast.SubDecl) {
 	typ := irtypes.Void
 	sig := irtypes.FuncType{RetType: typ}
 	var params []*ir.Param
-	for i, p := range n.SubType.Params {
-		paramType := sig.Params[i]
+	for _, p := range n.SubType.Params {
+		astParamType, _ := p.Type()
+		paramType := toIrType(astParamType)
+		if !p.ByVal {
+			paramType = irtypes.NewPointer(paramType)
+		}
 		param := ir.NewParam(p.Name().String(), paramType)
 		params = append(params, param)
-	}
-	f := NewFunc(name, sig.RetType, params...)
-	// Emit Variadic attribute: check if last parameter is ParamArray
-	if len(n.SubType.Params) > 0 {
-		if n.SubType.Params[len(n.SubType.Params)-1].ParamArray {
-			f.Sig.Variadic = true
+		if p.ParamArray {
+			size := ir.NewParam(p.Name().String()+"_size", irtypes.I32)
+			params = append(params, size)
 		}
 	}
+	f := NewFunc(name, sig.RetType, params...)
 
 	if !astutil.IsDef(n) {
 		dbg.Printf("create subroutine declaration: %v", n)
@@ -172,7 +190,7 @@ func (m *Module) subDecl(n *ast.SubDecl) {
 	m.setIdentValue(ident, f.Func)
 
 	// Generate function body.
-	dbg.Printf("create subroutine definition: %v", n)
+	dbg.Printf("create subroutine definition: %v", n.Name())
 	m.funcBody(f, n.SubType.Params, n.Body, nil)
 }
 
@@ -184,6 +202,11 @@ func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.Statem
 
 	// main calls _main to intercept errors
 	if f.Name() == "main" {
+		localVar := f.currentBlock.NewAlloca(irtypes.I32)
+		argcParam := f.Params[0]
+		f.currentBlock.NewStore(argcParam, localVar)
+		m.GCstart(f, localVar)
+
 		// main noParams
 		noParams := []*ir.Param{}
 		innerF := NewFunc(".main", irtypes.Void, noParams...)
@@ -195,7 +218,7 @@ func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.Statem
 
 		// entry:
 		tmp2 := f.currentBlock.NewCall(m.LookupFunction("setjmp"), m.LookupGlobal(JumpBuffer))
-		cmp := f.currentBlock.NewICmp(enum.IPredEQ, tmp2, constant.NewInt(types.I32, 0))
+		cmp := f.currentBlock.NewICmp(enum.IPredEQ, tmp2, constant.NewInt(irtypes.I32, 0))
 		f.currentBlock.NewCondBr(cmp, normalCall.Block, exception.Block)
 
 		// normalCall:
@@ -208,7 +231,7 @@ func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.Statem
 		// em2 = exception.NewLoad(types.I8Ptr, errorMessage)
 		f.Blocks = append(f.Blocks, f.currentBlock.Block)
 		f.currentBlock = exception
-		en := f.currentBlock.NewLoad(types.I32, m.LookupGlobal(ErrorNumber))
+		en := f.currentBlock.NewLoad(irtypes.I32, m.LookupGlobal(ErrorNumber))
 		f.currentBlock.NewCall(m.LookupFunction("printf"), m.LookupGlobal(ErrorMessage))
 		f.currentBlock.NewRet(en)
 
@@ -231,8 +254,18 @@ func (m *Module) funcBody(f *Function, params []ast.ParamItem, body []ast.Statem
 		// Emit local variable declarations for function parameters.
 		for i, param := range f.Params {
 			p := m.funcParam(f, param)
-			dbg.Printf("create function parameter: %v", params[i])
-			ident := params[i].Name()
+			var ident *ast.Identifier
+			if i >= len(params) {
+				// create a new identifier to avoid modifying the original AST
+				ident = params[i-1].Name() // for hidden size parameter
+				ident = &ast.Identifier{Tok: &token.Token{Kind: token.Identifier, Literal: ident.Name + "_size"}}
+				ident.Decl = &ast.ArrayDecl{VarName: ident, VarType: &ast.ArrayType{Dimensions: []ast.Expression{}}} // empty array
+				// ensure a unique position for identifier
+				ident.Decl.Name().Tok.Position = token.Position{Absolute: params[i-1].Name().Tok.Position.Absolute + 1}
+			} else {
+				ident = params[i].Name()
+				dbg.Printf("create function parameter: %v", params[i])
+			}
 			got := f.genUnique(ident)
 			if ident.Name != got {
 				panic(fmt.Sprintf("unable to generate identical function parameter name; expected %q, got %q", ident, got))
@@ -330,7 +363,8 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 		panic(fmt.Sprintf("unable to create type; %v", err))
 	}
 	// get array type
-	arrayTyp := toIrType(typ0)
+	typ1, _ := typ0.(*uBasictypes.Array)
+	arrayTyp := toIrType(typ1.Type)
 	dimensions := n.VarType.Dimensions
 	if len(dimensions) == 0 {
 		//m.glocalDynamicArrayDecl(n)
@@ -356,7 +390,7 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 
 		// allocate length of array constant
 		constName := fmt.Sprintf(".%s_%d", ident.Name, i)
-		cnst := m.NewGlobalDef(constName, constant.NewInt(irtypes.I32, dimension))
+		cnst := m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, dimension))
 		cnst.Immutable = true
 
 	}
@@ -364,12 +398,9 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 	// Create a new global variable of type [15]i8 and name it "str".
 	array0 := constant.NewArray(&irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
 	init := constant.NewZeroInitializer(array0.Typ)
-	global := ir.NewGlobalDef(ident.Name, init)
+	global := m.NewGlobalDef(ident.Name, init)
 
 	m.setIdentValue(ident, global)
-	// Emit global variable definition.
-	m.emitGlobal(global)
-
 }
 
 // --- [ Global constant declaration ] -----------------------------------------
@@ -489,30 +520,41 @@ func (m *Module) localVarDef(f *Function, n ast.VarDecl) value.Value {
 
 // constDecl lowers the given constant declaration to LLVM IR, emitting code to
 // f.
-func (m *Module) localConstDecl(f *Function, cnst *ast.ConstDeclItem) {
+func (m *Module) localConstDecl(f *Function, cnst *ast.ConstDeclItem) value.Value {
 	switch cnst.ConstValue.(type) {
 	case *ast.BasicLit:
 		switch cnst.ConstValue.(*ast.BasicLit).Kind {
 		case token.LongLit:
-			// %a = alloca i32
-			a := f.currentBlock.NewAlloca(irtypes.I64)
-			a.SetName(cnst.ConstName.Name)
+			var typ *irtypes.IntType
+			astType := cnst.ConstType.(*ast.Identifier).Name
+			switch strings.ToLower(astType) {
+			case "integer":
+				typ = irtypes.I32
+
+			case "long":
+				typ = irtypes.I64
+			}
+
+			identifier := cnst.ConstName
+			a := f.currentBlock.NewAlloca(typ)
+			a.SetName(identifier.Name)
 			// get value
 			env := object.NewEnvironment()
 			Object := eval.Eval(nil, cnst.ConstValue, env)
-			var Value int64
+			var value int64
 			switch Object.(type) {
 			case *object.Long:
-				Value = Object.GetValue().(int64)
+				value = Object.GetValue().(int64)
 			default:
 				panic("unknown expression: " + Object.String())
 			}
-
-			// store i32 32, i32* %
-			f.currentBlock.NewStore(constant.NewInt(irtypes.I64, Value), a)
+			f.currentBlock.NewStore(constant.NewInt(typ, value), a)
+			// Emit local variable definition.
+			return f.emitLocal(identifier, a)
 		}
+		// TODO: add support for other type of constants
 	}
-
+	panic("unknown constant type")
 }
 
 // --- [ Statements ] ----------------------------------------------------------
@@ -926,16 +968,13 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 		switch left := n.Left.(type) {
 		case *ast.Identifier:
 			m.identDef(f, left, right)
-			// case *ast.CallOrIndexExpr:
-			// 	m.indexExprDef(f, expr, y)
+		case *ast.CallOrIndexExpr:
+			m.indexExprDef(f, left, right)
 		default:
 			panic(fmt.Sprintf("support for assignment to type %T not yet implemented", left))
 		}
 		return right
 	case token.Concat:
-		// -----------------------------------------------------------
-		// gc := m.LookupGlobal("gc")
-		// -----------------------------------------------------------
 
 		// allocate heap memory for intermediate strings
 		// calculate length of string
@@ -944,9 +983,9 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 		lengthX := f.currentBlock.NewCall(m.LookupFunction("strlen"), x)
 		lengthY := f.currentBlock.NewCall(m.LookupFunction("strlen"), y)
 		length := f.currentBlock.NewAdd(lengthX, lengthY)
+		memoryBlock := m.GCmalloc(f, length)
 		// -----------------------------------------------------------
-		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("gc_malloc"), gc, length)
-		memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
+		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
 		// -----------------------------------------------------------
 
 		f.currentBlock.NewCall(m.LookupFunction("strcpy"), memoryBlock, x)
@@ -961,6 +1000,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 // callExpr lowers the given identifier to LLVM IR, emitting code to f.
 func (m *Module) callExpr(f *Function, callOrIndexExpr *ast.CallOrIndexExpr) value.Value {
 	typ0, err := callOrIndexExpr.Identifier.Decl.Type()
+
 	if err != nil {
 		panic(fmt.Sprintf("unable to create type; %v", err))
 	}
@@ -969,39 +1009,87 @@ func (m *Module) callExpr(f *Function, callOrIndexExpr *ast.CallOrIndexExpr) val
 	if !ok {
 		panic(fmt.Sprintf("invalid function type; expected *irtypes.FuncType, got %T", typ))
 	}
+
+	// number of arguments might be less, equal or more than the number of parameters
+	// in the function signature
+	// if the number of arguments is less, the remaining parameters will be initialized to default values
+	// if the number of arguments is more, will be put into ParamArray
+	// if the number of arguments is equal, the function will be called normally
+
 	params := sig.Params
 	result := sig.RetType
 	_ = result
 	var args []value.Value
-	for i, arg := range callOrIndexExpr.Args {
-		expr := m.expr(f, arg)
-		expr = m.convert(f, expr, params[i])
-		args = append(args, expr)
-	}
-	if len(callOrIndexExpr.Args) < len(params) {
-		// add optional parameters
-		var funcDecl *ast.FuncDecl
-		var subDecl *ast.SubDecl
-		var ok bool
-		var calleeParams []ast.ParamItem
-		if funcDecl, ok = callOrIndexExpr.Identifier.Decl.(*ast.FuncDecl); ok {
-			calleeParams = funcDecl.FuncType.Params
-		} else if subDecl, ok = callOrIndexExpr.Identifier.Decl.(*ast.SubDecl); ok {
-			calleeParams = subDecl.SubType.Params
+	decl := callOrIndexExpr.Identifier.Decl
+	var astParams []ast.ParamItem
+	astFunc, ok := decl.(*ast.FuncDecl)
+	if ok {
+		astParams = astFunc.FuncType.Params
+	} else {
+		astSub, ok := decl.(*ast.SubDecl)
+		if ok {
+			astParams = astSub.SubType.Params
 		}
-		for i := len(callOrIndexExpr.Args); i < len(calleeParams); i++ {
-			expr := m.expr(f, calleeParams[i].DefaultValue)
+	}
+	// todo pass by reference or value
+
+	if len(callOrIndexExpr.Args) < len(astParams) {
+		i := -1
+		var arg ast.Expression
+		for i, arg = range callOrIndexExpr.Args {
+			expr := m.expr(f, arg)
+			expr = m.convert(f, expr, params[i])
+			args = append(args, expr)
+		}
+		// add the rest of the arguments , to optional
+		// parameters
+		for j := i + 1; j < len(astParams); j++ {
+			defaultValue := m.expr(f, astParams[j].DefaultValue)
+			defaultValue = m.convert(f, defaultValue, params[j])
+			args = append(args, defaultValue)
+		}
+	} else if astParams[len(astParams)-1].ParamArray {
+		i := 0
+		var arg ast.Expression
+		for i, arg = range callOrIndexExpr.Args {
+			astParam := astParams[i]
+			if astParam.ParamArray {
+				break
+			}
+			expr := m.expr(f, arg)
+			expr = m.convert(f, expr, params[i])
+			args = append(args, expr)
+		}
+		// add param array
+		valueType := params[i].(*irtypes.PointerType).ElemType
+		paramArray := f.currentBlock.NewAlloca(
+			&irtypes.ArrayType{Len: uint64(len(callOrIndexExpr.Args) - i), ElemType: valueType})
+
+		for j := i; j < len(callOrIndexExpr.Args); j++ {
+			expr := m.expr(f, callOrIndexExpr.Args[j])
+			expr = m.convert(f, expr, valueType)
+			// expr = f.currentBlock.NewLoad(valueType, expr)
+
+			// store the value in the param array
+			gep := f.currentBlock.NewGetElementPtr(valueType, paramArray, constant.NewInt(irtypes.I64, int64(j-i)))
+			f.currentBlock.NewStore(expr, gep)
+		}
+		size := constant.NewInt(irtypes.I64, int64(len(callOrIndexExpr.Args)-i))
+		args = append(args, paramArray, size)
+	} else {
+		for i, arg := range callOrIndexExpr.Args {
+			expr := m.expr(f, arg)
 			expr = m.convert(f, expr, params[i])
 			args = append(args, expr)
 		}
 	}
 
+	// Get function value and pass arguments.
 	v := m.valueFromIdent(f, callOrIndexExpr.Identifier)
 	callee, ok := v.(*ir.Func)
 	if !ok {
 		panic(fmt.Sprintf("invalid callee type; expected *ir.Func, got %T", v))
 	}
-
 	return f.currentBlock.NewCall(callee, args...)
 }
 
@@ -1011,6 +1099,16 @@ func (m *Module) ident(f *Function, ident *ast.Identifier) value.Value {
 	if ident.Name == f.Name() {
 		pos := ident.Decl.Name().Tok.Position.Absolute
 		return f.idents[pos]
+	}
+	param, ok := ident.Decl.(*ast.ParamItem)
+	if ok {
+		// if variable is byref
+		if !param.ByVal {
+			// Emit load instruction.
+			src := m.valueFromIdent(f, ident)
+			srcElemType := src.Type().(*irtypes.PointerType).ElemType
+			return f.currentBlock.NewLoad(srcElemType, src)
+		}
 	}
 
 	switch typ := m.typeOf(ident).(type) {
@@ -1036,15 +1134,18 @@ func (m *Module) ident(f *Function, ident *ast.Identifier) value.Value {
 				// TODO: Validate typ against array.
 				_ = typ
 				if array, ok := array.(constant.Constant); ok {
-					return constant.NewGetElementPtr(arrayElemType, array, is...)
+					gep := constant.NewGetElementPtr(arrayElemType, array, is...)
+					gep.InBounds = true
+					return gep
 				}
 				panic(fmt.Sprintf("invalid constant array type; expected constant.Constant, got %T", array))
 			}
 		}
-		return f.currentBlock.NewGetElementPtr(arrayElemType, array, indices...)
+		gep := f.currentBlock.NewGetElementPtr(arrayElemType, array, indices...)
+		gep.InBounds = true
+		return gep
 	case *irtypes.PointerType:
 		// Emit load instruction.
-		// TODO: Validate typ against srcAddr.Elem().
 		src := m.valueFromIdent(f, ident)
 		srcElemType := src.Type().(*irtypes.PointerType).ElemType
 		return f.currentBlock.NewLoad(srcElemType, src)
@@ -1060,7 +1161,6 @@ func (m *Module) identUse(f *Function, ident *ast.Identifier) value.Value {
 	if isRef(typ) {
 		return v
 	}
-	// TODO: Validate typ against v.Elem()
 	elemType := v.Type().(*irtypes.PointerType).ElemType
 	return f.currentBlock.NewLoad(elemType, v)
 }
@@ -1088,15 +1188,82 @@ func (m *Module) identDef(f *Function, ident *ast.Identifier, v value.Value) {
 
 		// calculate length of string
 		length := f.currentBlock.NewCall(m.LookupFunction("strlen"), v)
-
 		// -----------------------------------------------------------
-		// allocate heap memory for global strings
-		// gc := m.LookupGlobal("gc")
-		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("gc_malloc"), gc, length)
-		memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
+		memoryBlock := m.GCmalloc(f, length)
 		// -----------------------------------------------------------
 
 		f.currentBlock.NewStore(memoryBlock, dest)
+		f.currentBlock.NewCall(m.LookupFunction("strcpy"), memoryBlock, v)
+	} else {
+		f.currentBlock.NewStore(v, addr)
+	}
+}
+
+// indexExprDef lowers the given index expression definition to LLVM IR, emitting code to f.
+func (m *Module) indexExprDef(f *Function, n *ast.CallOrIndexExpr, v value.Value) {
+	ident := n.Identifier
+	// evaluate dimensions at compile time
+	astDimensions := n.Identifier.Decl.(*ast.ArrayDecl).VarType.Dimensions
+	dimensions := make([]int64, len(astDimensions))
+	for i, dim := range astDimensions {
+		result := eval.Eval(nil, dim, object.NewEnvironment())
+		switch resultObj := result.(type) {
+		case *object.Long:
+			dimensions[i] = resultObj.Value
+		default:
+			panic("error evaluating array dimensions")
+		}
+	}
+	indices := make([]value.Value, len(n.Args))
+	var compoundIndex value.Value
+	// verify that the number of indices is equal to the number of dimensions of the array
+	if len(n.Args) == len(dimensions) || (len(n.Args) == 1 && len(dimensions) == 0) {
+		for i, index := range n.Args {
+			indices[i] = m.expr(f, index)
+			// load array dimension
+			dimVarName := fmt.Sprintf(".%s_%d", n.Identifier.Name, i)
+			dimVar := m.LookupGlobal(dimVarName)
+			dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
+			// compare index with dimension
+			m.checkArrayBounds(f, indices[i], dim)
+
+			// calculate compound index
+			if i == 0 {
+				compoundIndex = indices[i]
+			} else {
+				compoundIndex = f.currentBlock.NewMul(compoundIndex, dim)
+				compoundIndex = f.currentBlock.NewAdd(compoundIndex, indices[i])
+			}
+		}
+	} else {
+		panic("invalid number of indices") // should have been caught by the parser
+	}
+
+	// get array address
+	array := m.valueFromIdent(f, n.Identifier)
+	// get array element type
+	arrayElemType := array.Type().(*irtypes.PointerType).ElemType
+	// calculate address of array element
+	// Emit getelementptr instruction.
+	zero := constZero(irtypes.I64)
+	addr := f.currentBlock.NewGetElementPtr(arrayElemType, array, zero, compoundIndex)
+
+	addrType, ok := addr.Type().(*irtypes.PointerType)
+	if !ok {
+		panic(fmt.Sprintf("invalid pointer type; expected *irtypes.PointerType, got %T", addr.Type()))
+	}
+	v = m.convert(f, v, addrType.ElemType)
+	// if string we need to allocate memory for it
+	t, _ := ident.Decl.Type()
+	if t.String() == "String" {
+		// calculate length of string
+		length := f.currentBlock.NewCall(m.LookupFunction("strlen"), v)
+		// -----------------------------------------------------------
+		memoryBlock := m.GCmalloc(f, length)
+		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
+		// -----------------------------------------------------------
+
+		f.currentBlock.NewStore(memoryBlock, addr)
 		f.currentBlock.NewCall(m.LookupFunction("strcpy"), memoryBlock, v)
 	} else {
 		f.currentBlock.NewStore(v, addr)
@@ -1138,58 +1305,99 @@ func (m *Module) callOrIndexExpr(f *Function, n *ast.CallOrIndexExpr) value.Valu
 		return m.callExpr(f, n)
 	case *ast.ArrayDecl:
 		return m.indexExpr(f, n)
+	case *ast.ParamItem:
+		return m.parmArrayIndexExpr(f, n)
 	default:
-		panic(fmt.Sprintf("support for type %T not yet implemented", n))
+		panic(fmt.Sprintf("support for type %T not yet implemented", n.Identifier.Decl))
 	}
+}
+
+// parmArrayIndexExpr lowers the given index expression to LLVM IR, emitting code to f.
+func (m *Module) parmArrayIndexExpr(f *Function, n *ast.CallOrIndexExpr) value.Value {
+	// evaluate dimensions at run-time
+	dimension := f.currentBlock.NewSExt(f.Params[len(f.Params)-1], irtypes.I64)
+
+	// verify that the number of indices is equal to the number of dimensions of the array
+	// or one less if the array is a dynamic array
+
+	var compoundIndex value.Value
+	if len(n.Args) == 1 {
+		indice := m.expr(f, n.Args[0])
+		// compare index with dimension
+		m.checkArrayBounds(f, indice, dimension)
+		compoundIndex = indice
+	} else {
+		panic("invalid number of indices") // should have been caught by the parser
+	}
+	// calculate address of array element
+	// Emit getelementptr instruction.
+	array := f.Params[len(f.Params)-2]
+	arrayType := array.Type().(*irtypes.PointerType)
+	arrayElemType := arrayType.ElemType
+	resultAddr := f.currentBlock.NewGetElementPtr(arrayElemType, array, compoundIndex)
+	// Emit load instruction.
+	return f.currentBlock.NewLoad(arrayElemType, resultAddr)
+
 }
 
 // indexExpr lowers the given index expression to LLVM IR, emitting code to f.
 func (m *Module) indexExpr(f *Function, n *ast.CallOrIndexExpr) value.Value {
 
-	// evaluate dimensions at comopile time
-	astDimensions := n.Identifier.Decl.(*ast.ArrayDecl).VarType.Dimensions
-	dimensions := make([]int64, len(astDimensions))
-	for i, dim := range astDimensions {
-		result := eval.Eval(nil, dim, object.NewEnvironment())
-		switch resultObj := result.(type) {
-		case *object.Long:
-			dimensions[i] = resultObj.Value
-		default:
-			panic("error evaluating array dimensions")
-		}
-	}
-	indices := make([]value.Value, len(n.Args))
-	var compoundIndex value.Value
+	// evaluate dimensions at compile time
+	var astDimensions []ast.Expression
+	declArr, ok := n.Identifier.Decl.(*ast.ArrayDecl)
+	if ok {
+		astDimensions = declArr.VarType.Dimensions
 
-	// verify that the number of indices is equal to the number of dimensions of the array
-	// or one less if the array is a dynamic array
-
-	if len(n.Args) == len(dimensions) || (len(n.Args) == 1 && len(dimensions) == 0) {
-		for i, index := range n.Args {
-			indices[i] = m.expr(f, index)
-			// load array dimension
-			dimVarName := fmt.Sprintf("%s_dim_%d", n.Identifier.Name, i)
-			dimVar := m.LookupGlobal(dimVarName)
-			dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
-			// compare index with dimension
-			m.checkArrayBounds(f, indices[i], dim)
-
-			// calculate compound index
-			if i == 0 {
-				compoundIndex = indices[i]
-			} else {
-				compoundIndex = f.currentBlock.NewMul(compoundIndex, dim)
-				compoundIndex = f.currentBlock.NewAdd(compoundIndex, indices[i])
+		dimensions := make([]int64, len(astDimensions))
+		for i, dim := range astDimensions {
+			result := eval.Eval(nil, dim, object.NewEnvironment())
+			switch resultObj := result.(type) {
+			case *object.Long:
+				dimensions[i] = resultObj.Value
+			default:
+				panic("error evaluating array dimensions")
 			}
 		}
-	} else {
-		panic("invalid number of indices") // should have been caught by the parser
+		indices := make([]value.Value, len(n.Args))
+		var compoundIndex value.Value
+
+		// verify that the number of indices is equal to the number of dimensions of the array
+		// or one less if the array is a dynamic array
+
+		if len(n.Args) == len(dimensions) || (len(n.Args) == 1 && len(dimensions) == 0) {
+			for i, index := range n.Args {
+				indices[i] = m.expr(f, index)
+				// load array dimension
+				dimVarName := fmt.Sprintf(".%s_%d", n.Identifier.Name, i)
+				dimVar := m.LookupGlobal(dimVarName)
+				dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
+				// compare index with dimension
+				m.checkArrayBounds(f, indices[i], dim)
+
+				// calculate compound index
+				if i == 0 {
+					compoundIndex = indices[i]
+				} else {
+					compoundIndex = f.currentBlock.NewMul(compoundIndex, dim)
+					compoundIndex = f.currentBlock.NewAdd(compoundIndex, indices[i])
+				}
+			}
+		} else {
+			panic("invalid number of indices") // should have been caught by the parser
+		}
+		// get array address
+		array := m.valueFromIdent(f, n.Identifier)
+		// get array element type
+		arrayType := array.Type().(*irtypes.PointerType).ElemType
+		arrayElemType := arrayType.(*irtypes.ArrayType).ElemType
+
+		// calculate address of array element
+		// Emit getelementptr instruction.
+		zero := constZero(irtypes.I64)
+		resultAddr := f.currentBlock.NewGetElementPtr(arrayElemType, array, zero, compoundIndex)
+		// Emit load instruction.
+		return f.currentBlock.NewLoad(arrayElemType, resultAddr)
 	}
-	// get array address
-	array := m.valueFromIdent(f, n.Identifier)
-	// get array element type
-	arrayElemType := array.Type().(*irtypes.PointerType).ElemType
-	// calculate address of array element
-	// Emit getelementptr instruction.
-	return f.currentBlock.NewGetElementPtr(arrayElemType, array, compoundIndex)
+	panic("unreachable")
 }

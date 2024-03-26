@@ -59,6 +59,8 @@ func (m *Module) convertIntType(f *Function, v value.Value, fromType *irtypes.In
 		}
 	} else if toFloatType, ok := to.(*irtypes.FloatType); ok {
 		return f.currentBlock.NewSIToFP(v, toFloatType)
+	} else if pt, ok := to.(*irtypes.PointerType); ok {
+		return m.convert(f, v, pt.ElemType)
 	} else {
 		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
 
@@ -92,6 +94,8 @@ func (m *Module) convertFloatType(f *Function, v value.Value, fromType *irtypes.
 		}
 	} else if toIntType, ok := to.(*irtypes.IntType); ok {
 		return f.currentBlock.NewFPToSI(v, toIntType)
+	} else if pt, ok := to.(*irtypes.PointerType); ok {
+		return m.convert(f, v, pt.ElemType)
 	} else {
 		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
 	}
@@ -116,13 +120,22 @@ func isLarger(t, u irtypes.Type) bool {
 		// Size returns the size of t in number of bits.
 		Size() int
 	}
+	var tSize int
+	var uSize int
 
-	if t, ok := t.(Sizer); ok {
-		if u, ok := u.(Sizer); ok {
-			return t.Size() > u.Size()
-		}
+	if ts, ok := t.(Sizer); ok {
+		tSize = ts.Size()
+	} else if t, ok := t.(*irtypes.IntType); ok {
+		tSize = int(t.BitSize)
 	}
-	return false
+	if us, ok := u.(Sizer); ok {
+		uSize = us.Size()
+	} else if u, ok := u.(*irtypes.IntType); ok {
+		uSize = int(u.BitSize)
+	}
+
+	return tSize > uSize
+
 }
 
 // firstOnlyIsFloat reports whether the first type is a floating-point type and

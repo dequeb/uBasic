@@ -191,13 +191,13 @@ func colorParamItem(n *ast.ParamItem) []richtext.SpanStyle {
 		styles = append(styles, richtext.SpanStyle{Color: statement, Content: "ParamArray ", Size: size, Font: font})
 	}
 	styles = append(styles, colorText(n.VarName)...)
+	if n.IsArray {
+		styles = append(styles, richtext.SpanStyle{Color: operator, Content: "()", Size: size, Font: font})
+	}
 
 	if n.VarType != nil {
 		styles = append(styles, richtext.SpanStyle{Color: other, Content: " As ", Size: size, Font: font})
 		styles = append(styles, colorText(n.VarType)...)
-	}
-	if n.IsArray {
-		styles = append(styles, richtext.SpanStyle{Color: operator, Content: "()", Size: size, Font: font})
 	}
 	if n.DefaultValue != nil {
 		styles = append(styles, richtext.SpanStyle{Color: other, Content: " = ", Size: size, Font: font})

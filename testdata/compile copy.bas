@@ -159,52 +159,84 @@ Function times2(Optional n As long = 10 + 2) As Long
     Let times2 = n * 2
 end Function
 
-Function add(ParamArray a() As integer)
-    Dim i As integer
-    Let i = 0
-    Dim add As integer
-    Do While i < ubound(a)
-        Let add = add + a(i)
-        Let i = i + 1
-    Loop
-    print add
+print times(2)
+print times()
+
+Sub listParmArray(ParamArray a() As integer)
+    print a(0)
+    print a(1)
+    print a(2)
 end Sub
 
-Function add2(ParamArray a() As integer)
-    Dim i As integer
-    Let i = 0
-    Do While i < ubound(a)
-        Let add2 = add2 + a(i)
-        Let i = i + 1
-    Loop
+call listParmArray(2, 5, 9)
+
+sub addParmArray(ParamArray a() As integer)
+    print a(0) + a(1) + a(2)
 end Sub
-
-' print times2(10)
-print times2()
-print times(2, 10)
-print add2(1, 2, 3, 4, 5)
-Call add(1, 2, 3, 4, 5)
-
-Sub add(ParamArray a() As integer)
-    Dim i As integer
-    Let i = 0
-    Do While i < ubound(a)
-        Let i = i + 1
-        print a(i)
-    Loop
-end Sub
+call addParmArray(17, -19, 25)
 
 
-Function add2(ParamArray a() As integer)
-    Dim i As integer
-    Let i = 0
-    Do While i < ubound(a)
-        Let add2 = add2 + a(i)
-        Let i = i + 1
-    Loop
-end Sub
+function addDefaultValue(optional a As integer = 1, optional  b As integer = 2) As integer
+    let addDefaultValue = a + b
+end function
 
-print times2(10)
+print addDefaultValue(10, 4)
+print addDefaultValue(10)
+print addDefaultValue()
 
-print add2(1, 2, 3, 4, 5)
-Call add(1, 2, 3, 4, 5, 6, 7, 8, 9, 10) 
+
+' sub addByRef(ByRef a As integer)
+'     Let a = a + 1
+'     print "in addByRef A: ", a
+' end sub
+
+' sub addByVal(ByVal a As integer)
+'     Let a = a + 1
+'     print "in addByVal A: ", a
+' end sub
+
+' dim addBy As Integer
+' Let addBy = 1
+' print addBy
+' call addByRef(addBy)
+' print addBy
+
+' print addBy
+' call addByVal(addBy)
+' print addBy
+
+
+
+
+
+print 1.0/3
+Print 3/2.0
+Print 3/2
+print 1/0    ' generate a runtime error
+
+Dim b8(3, 3) As integer
+Let b8(0,0) = 2
+' print b8(0,0)
+Let b8(0,1) = 3
+' print b8(0,1)
+Let b8(0,2) = 4
+' print b8(0,2)
+Let b8(1,0) = 5
+' print b8(1,0)
+Let b8(1,1) = 6
+' print b8(1,1)
+Let b8(1,1) = 7
+' print b8(1,1)
+Let b8(1,2) = 8
+' print b8(1,2)
+Let b8(2,1) = 9
+ print b8(1,2) + b8(2,1)
+ print b8(0,0) - b8(1,1) + b8(2,1) * -b8(1,2)
+ print b8(1,2)  - (b8(1,1) + b8(2,1) * b8(1,2)) 
+print 8 * b8(1,2)  - (b8(1,1) + b8(2,1) * b8(1,2)) 
+Dim a(2) As Long
+Let a(1) = 2
+Let a(0) = 23
+print a(1) , ", ", a(0)
+' let a(2) = 24
+' print a(2)

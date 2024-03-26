@@ -1,8 +1,8 @@
 # compilez C en llvm
-clang -S helloworld.c   -emit-llvm 
+clang -S compile.c   -emit-llvm 
 
 # Compilez le fichier LLVM en un fichier d'objet
-llc -filetype=obj helloworld.ll
+llc -filetype=obj compile.ll
 
 # Liez le fichier d'objet en un exécutable
-clang helloworld.o -o helloworld
+clang compile.o log.o gc.o -o compile

@@ -93,9 +93,7 @@ func (m *Module) endBody(f *Function, resultIdentifier *ast.Identifier) error {
 			// the main function as its argument; reaching the } that terminates
 			// the main function returns a value of 0."
 
-			// call error handling function
-			// in case of error, it will display the error on stderr and exit
-
+			m.GCstop(f)
 			result := f.Sig.RetType
 			zero := constZero(result)
 			termRet := ir.NewRet(zero)

@@ -92,8 +92,19 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 			declPos := arg.Decl.Name().Token().Position.Absolute
 			// is it local or global
 			if value1, ok = f.idents[declPos]; ok {
-				typ := value1.Type()
-				variableValue := f.currentBlock.NewLoad(typ, value1)
+				var variableValue value.Value
+				var typ types.Type
+				typ = value1.Type()
+				// if param passed by reference, get the value pointed to
+				if paramItem, ok := arg.Decl.(*ast.ParamItem); ok {
+					if !paramItem.ByVal {
+						// get the type of the identifier
+						variableValue = f.currentBlock.NewLoad(typ, value1)
+						typ = variableValue.Type().(*types.PointerType).ElemType
+					}
+				}
+				variableValue = f.currentBlock.NewLoad(typ, value1)
+
 				m.printValue(f, arg, variableValue)
 			} else {
 				value1 = m.LookupGlobal(arg.Name)
@@ -126,14 +137,14 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 		default:
 			val := m.expr(f, arg)
 			m.printValue(f, arg, val)
-			// free the memory
-			switch val := val.(type) {
-			case *ir.InstCall:
-				_, ok := val.Type().(*types.PointerType)
-				if ok {
-					f.currentBlock.NewCall(m.LookupFunction("free"), val)
-				}
-			}
+			// // free the memory
+			// switch val := val.(type) {
+			// case *ir.InstCall:
+			// 	_, ok := val.Type().(*types.PointerType)
+			// 	if ok {
+			// 		f.currentBlock.NewCall(m.LookupFunction("free"), val)
+			// 	}
+			// }
 		}
 	}
 	if node.Semicolon == nil {
@@ -156,7 +167,6 @@ func (m *Module) printValue(f *Function, arg ast.Expression, val value.Value) {
 		// get the array type
 		astType = arrayType.Type
 	}
-
 	var format string
 	switch astType.(*uBasictypes.Basic).Kind {
 	case uBasictypes.Integer:
@@ -277,26 +287,11 @@ func (m *Module) genErrorHandler() {
 }
 
 func (m *Module) genExternals() {
+	m.genGC()
 	// Convenience types and values.
 	i32 := types.I32
 	i8 := types.I8
 	i8ptr := types.NewPointer(i8)
-	//zero := constant.NewInt(i32, 0)
-
-	// garbage collection -----------------
-	// %struct.GarbageCollector = type { ptr, i8, ptr, i64 }
-	// @gc = external global %struct.GarbageCollector, align 8
-	// m.NewGlobal("gc", types.NewStruct(types.NewPointer(i8), types.I8, types.NewPointer(i8), types.I64))
-
-	// declare void @gc_start(ptr noundef, ptr noundef) #1
-	// declare i64 @gc_stop(ptr noundef) #1
-	// declare ptr @gc_malloc(ptr noundef, i64 noundef) #1
-	// m.NewFunc("gc_start", types.Void, ir.NewParam("ptr", types.NewPointer(types.Void)), ir.NewParam("ptr", types.NewPointer(types.Void)))
-	// m.NewFunc("gc_stop", types.I64, ir.NewParam("ptr", types.NewPointer(types.Void)))
-	// m.NewFunc("gc_malloc", types.NewPointer(types.Void), ir.NewParam("ptr", types.NewPointer(types.Void)), ir.NewParam("size", types.I64))
-	m.NewFunc("malloc", types.NewPointer(types.I8), ir.NewParam("size", types.I64))
-	m.NewFunc("calloc", types.NewPointer(types.I8), ir.NewParam("n", types.I64), ir.NewParam("size", types.I64))
-	m.NewFunc("free", types.Void, ir.NewParam("ptr", types.NewPointer(types.I8)))
 
 	// io functions -----------------
 	printf := m.NewFunc("printf", i32, ir.NewParam("format", i8ptr))
@@ -339,9 +334,11 @@ func (m *Module) genExternals() {
 
 	// exception constant
 	divisionByZero := constant.NewCharArrayFromString("Division by zero\n\x00")
-	m.NewGlobalDef(".divisionByZero", divisionByZero)
+	dv0 := m.NewGlobalDef(".divisionByZero", divisionByZero)
+	dv0.Linkage = enum.LinkagePrivate
 	arrayOutOfBounds := constant.NewCharArrayFromString("Array index out of bounds\n\x00")
-	m.NewGlobalDef(".arrayIndexOutOfBounds", arrayOutOfBounds)
+	aob := m.NewGlobalDef(".arrayIndexOutOfBounds", arrayOutOfBounds)
+	aob.Linkage = enum.LinkagePrivate
 }
 
 // ----- error numbers -----
@@ -387,6 +384,9 @@ func (m *Module) checkIfDivisionByZero(f *Function, val value.Value) {
 
 // checkArrayBounds checks if the given index is out of bounds, if so generate an error message and return.
 func (m *Module) checkArrayBounds(f *Function, index value.Value, length value.Value) {
+
+	// TODO add compile time chech for array bounds
+
 	zero := constZero(index.Type())
 	trueBranch1 := f.NewBlock("")
 	end1 := f.NewBlock("")

@@ -384,7 +384,6 @@ func (p *Parser) ParseType() ast.Type {
 		// user defined type
 		identifier := p.ParseIdentifier()
 		if identifier == nil {
-			// p.AddError(p.currentToken(), "expected type")
 			return nil
 		}
 		return identifier
@@ -665,6 +664,9 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 		param.IsArray = true
 		p.nextToken()
 		p.nextToken()
+	} else if param.ParamArray {
+		p.AddError(p.currentToken(), "expected '()'")
+		return nil
 	}
 
 	// skip as keyword
@@ -682,10 +684,15 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 
 	// look for default value
 	if p.currentTokenIs(token.Assign) {
-		p.nextToken()
-		param.DefaultValue = p.ParseExpression()
-		if param.DefaultValue == nil {
-			// p.AddError(p.currentToken(), "expected expression")
+		if param.Optional {
+			p.nextToken()
+			param.DefaultValue = p.ParseExpression()
+			if param.DefaultValue == nil {
+				// p.AddError(p.currentToken(), "expected expression")
+				return nil
+			}
+		} else {
+			p.AddError(p.currentToken(), "expected 'optional'")
 			return nil
 		}
 	}
