@@ -141,7 +141,7 @@ func LoadInterpreter(fileName string) error {
 	p := parser.New(l)
 	file := p.ParseFile()
 	src := &source.Source{Input: input, Name: fileName}
-	if file == nil {
+	if len(p.Errors()) > 0 {
 		for _, err := range p.Errors() {
 			e := err.(*errors.Error)
 			e.Source = src

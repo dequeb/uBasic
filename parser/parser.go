@@ -63,7 +63,8 @@ func (p *Parser) Errors() []error {
 }
 
 func (p *Parser) AddError(tok *token.Token, message string) {
-	p.errors = append(p.errors, errors.New(tok.Position, message))
+	pos := tok.Position
+	p.errors = append(p.errors, errors.New(token.Position{Line: pos.Line, Column: pos.Column, Absolute: pos.Absolute}, message))
 }
 
 func (p *Parser) nextToken() {
@@ -127,10 +128,20 @@ func (p *Parser) ParseFile() *ast.File {
 		if stmtList != nil {
 			file.Body = append(file.Body, *stmtList)
 		} else {
+			// there was an error parsing the statement
+			// skip tokens until EOL or EOF
+			for !p.currentTokenIs(token.EOL) && !p.currentTokenIs(token.EOF) {
+				p.nextToken()
+			}
+		}
+
+		if len(p.Errors()) > 10 {
+			p.AddError(p.currentToken(), "too many errors")
 			return nil
 		}
+
 		if !(p.currentTokenIs(token.EOL) || p.currentTokenIs(token.EOF)) {
-			p.AddError(p.currentToken(), "expecting EOL")
+			p.AddError(p.currentToken(), "expecting EOL or EOF")
 			return nil
 		}
 		p.nextToken() // skip EOL
@@ -633,6 +644,7 @@ func (p *Parser) ParseFunctionType() *ast.FuncType {
 // ParseParameterItem parses a parameter item.
 func (p *Parser) ParseParamItem() *ast.ParamItem {
 	param := &ast.ParamItem{}
+	parameterTypeSpecified := false
 
 	// read Optional keyword
 	if p.currentTokenIs(token.KwOptional) {
@@ -643,11 +655,16 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 	// read byVal keyword
 	if p.currentTokenIs(token.KwByVal) {
 		param.ByVal = true
+		parameterTypeSpecified = true
 		p.nextToken()
 	} else if p.currentTokenIs(token.KwByRef) {
 		param.ByVal = false
+		parameterTypeSpecified = true
 		p.nextToken()
+	} else {
+		param.ByVal = true
 	}
+
 	// read ParamArray keyword
 	if p.currentTokenIs(token.KwParamArray) {
 		param.ParamArray = true
@@ -675,6 +692,21 @@ func (p *Parser) ParseParamItem() *ast.ParamItem {
 		return nil
 	}
 	p.nextToken()
+
+	// paramArray must be ByVal
+	if !parameterTypeSpecified && param.ParamArray {
+		param.ByVal = true
+	} else if parameterTypeSpecified && param.ParamArray {
+		if !param.ByVal {
+			p.AddError(p.currentToken(), "expected ByVal")
+			return nil
+		}
+	}
+	// Optional parameters must be ByVal
+	if param.Optional && !param.ByVal {
+		p.AddError(p.currentToken(), "expected ByVal for optional parameter")
+		return nil
+	}
 
 	param.VarType = p.ParseType()
 	if param.VarType == nil {

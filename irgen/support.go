@@ -12,7 +12,7 @@ import (
 	"github.com/llir/llvm/ir"
 	"github.com/llir/llvm/ir/constant"
 	"github.com/llir/llvm/ir/enum"
-	"github.com/llir/llvm/ir/types"
+	irtypes "github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
 )
 
@@ -21,6 +21,8 @@ func (m *Module) specialStmt(f *Function, node *ast.SpecialStmt) {
 	switch strings.ToLower(node.Keyword1.Literal) {
 	case "print", "debug.print", "msgbox":
 		m.printStmt(f, node)
+	case "redim":
+		m.redimStmt(f, node)
 	default:
 		panic("unknown special statement")
 	}
@@ -40,18 +42,18 @@ func FromFloatToDateString(f float64) string {
 }
 
 func FromDateToFloat(date time.Time) float64 {
-	ref := time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
+	ref := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
 	return date.Sub(ref).Seconds()
 }
 
 func FromFloatToDate(f float64) time.Time {
-	ref := time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC)
+	ref := time.Date(0, time.January, 1, 0, 0, 0, 0, time.UTC)
 	return ref.Add(time.Duration(f) * time.Second)
 }
 
 // compilePrintStmt compiles a print statement.
 func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
-	zero := constant.NewInt(types.I32, 0)
+	zero := constant.NewInt(irtypes.I32, 0)
 	printf := m.LookupFunction("printf")
 	puts := m.LookupFunction("puts")
 	for _, arg := range node.Args {
@@ -92,19 +94,7 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 			declPos := arg.Decl.Name().Token().Position.Absolute
 			// is it local or global
 			if value1, ok = f.idents[declPos]; ok {
-				var variableValue value.Value
-				var typ types.Type
-				typ = value1.Type()
-				// if param passed by reference, get the value pointed to
-				if paramItem, ok := arg.Decl.(*ast.ParamItem); ok {
-					if !paramItem.ByVal {
-						// get the type of the identifier
-						variableValue = f.currentBlock.NewLoad(typ, value1)
-						typ = variableValue.Type().(*types.PointerType).ElemType
-					}
-				}
-				variableValue = f.currentBlock.NewLoad(typ, value1)
-
+				variableValue := m.pointerToValue(f, value1)
 				m.printValue(f, arg, variableValue)
 			} else {
 				value1 = m.LookupGlobal(arg.Name)
@@ -115,7 +105,7 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 					argType, _ := arg.Decl.Type()
 					if argType.(*uBasictypes.Basic).Kind == uBasictypes.String {
 						switch typ.(type) {
-						case *types.PointerType:
+						case *irtypes.PointerType:
 							gep = constant.NewGetElementPtr(typ, globalValue, zero)
 							tmp1 = f.currentBlock.NewLoad(typ, gep)
 						default:
@@ -128,7 +118,7 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 					}
 					m.printValue(f, arg, tmp1)
 				} else {
-					panic("unknown identifier")
+					panic("unknown identifier: " + arg.Name)
 				}
 			}
 		case *ast.CallOrIndexExpr:
@@ -140,7 +130,7 @@ func (m *Module) printStmt(f *Function, node *ast.SpecialStmt) {
 			// // free the memory
 			// switch val := val.(type) {
 			// case *ir.InstCall:
-			// 	_, ok := val.Type().(*types.PointerType)
+			// 	_, ok := val.Type().(*irtypes.PointerType)
 			// 	if ok {
 			// 		f.currentBlock.NewCall(m.LookupFunction("free"), val)
 			// 	}
@@ -166,6 +156,9 @@ func (m *Module) printValue(f *Function, arg ast.Expression, val value.Value) {
 	} else if arrayType, ok := astType.(*uBasictypes.Array); ok {
 		// get the array type
 		astType = arrayType.Type
+	} else if byRefType, ok := astType.(*uBasictypes.ByRef); ok {
+		// get the byRef type
+		astType = byRefType.Type
 	}
 	var format string
 	switch astType.(*uBasictypes.Basic).Kind {
@@ -187,10 +180,10 @@ func (m *Module) printValue(f *Function, arg ast.Expression, val value.Value) {
 		falsestr0 := m.LookupGlobal("false")
 		falsestr1 := falsestr0.Init
 		// create a switch to check the value of the boolean
-		cmp := f.currentBlock.NewICmp(enum.IPredEQ, val, constant.NewInt(types.I1, 1))
+		cmp := f.currentBlock.NewICmp(enum.IPredEQ, val, constant.NewInt(irtypes.I1, 1))
 		val = f.currentBlock.NewSelect(cmp,
-			constant.NewGetElementPtr(truestr1.Type(), truestr0, constant.NewInt(types.I64, 0)),
-			constant.NewGetElementPtr(falsestr1.Type(), falsestr0, constant.NewInt(types.I64, 0)))
+			constant.NewGetElementPtr(truestr1.Type(), truestr0, constant.NewInt(irtypes.I64, 0)),
+			constant.NewGetElementPtr(falsestr1.Type(), falsestr0, constant.NewInt(irtypes.I64, 0)))
 		format = "%s"
 	case uBasictypes.Date:
 		// format = "%s"
@@ -206,40 +199,66 @@ func (m *Module) printValue(f *Function, arg ast.Expression, val value.Value) {
 	f.currentBlock.NewCall(printf, format2, val)
 }
 
+// redimStmt compiles a redim statement.
+func (m *Module) redimStmt(f *Function, node *ast.SpecialStmt) {
+	// // get the array
+	// ident := node.Args[0].(*ast.Identifier)
+	// preserve := strings.EqualFold(node.Keyword2, "preserve")
+	// // get the identifier
+	// declPos := ident.Decl.Name().Token().Position.Absolute
+	// identifier, ok := f.idents[declPos]
+	// if !ok {
+	// 	panic("unknown identifier")
+	// }
+	// // get the new size
+	// size := m.expr(f, node.Args[1])
+	// size = f.currentBlock.NewLoad(size.Type(), size)
+
+	// // get the array type
+	// varName := f.currentBlock.NewLoad(ArrayVarSizeName)
+}
+
 // toIrType converts the given uBasic type to the corresponding LLVM IR type.
-func toIrType(n uBasictypes.Type) types.Type {
-	var t types.Type
+func toIrType(n uBasictypes.Type) irtypes.Type {
+	var t irtypes.Type
 	switch uBasicType := n.(type) {
 	case *uBasictypes.Basic:
 		switch uBasicType.Kind {
 		case uBasictypes.Boolean:
-			t = types.NewInt(1)
+			t = irtypes.NewInt(1)
 		case uBasictypes.Integer:
-			t = types.NewInt(32)
+			t = irtypes.NewInt(32)
 		case uBasictypes.Long:
-			t = types.NewInt(64)
+			t = irtypes.NewInt(64)
 		case uBasictypes.Single, uBasictypes.Currency, uBasictypes.Date:
-			t = types.Float
+			t = irtypes.Float
 		case uBasictypes.Double:
-			t = types.Double
+			t = irtypes.Double
 		case uBasictypes.Nothing:
-			t = types.Void
+			t = irtypes.Void
 		case uBasictypes.String:
-			t = types.NewPointer(types.I8)
+			t = irtypes.NewPointer(irtypes.I8)
 		}
 	case *uBasictypes.Array:
 		elem := toIrType(uBasicType.Type)
 		var length = 0
 		for _, dim := range uBasicType.Dimensions {
-			length *= dim
+			if length == 0 {
+				length = dim
+			} else {
+				length *= dim
+			}
 		}
 		if length == 0 {
-			t = types.NewPointer(elem) // dynamic array
+			t = irtypes.NewPointer(elem) // dynamic array
 		} else {
-			t = types.NewArray(uint64(length), elem) // static array
+			t = irtypes.NewArray(uint64(length), elem) // static array
 		}
+	case *uBasictypes.ByRef:
+		t = irtypes.NewPointer(toIrType(uBasicType.Type))
+
 	case *uBasictypes.Func:
-		var params []types.Type
+		var params []irtypes.Type
 		variadic := false
 		for _, p := range uBasicType.Params {
 			pt := toIrType(p.Type)
@@ -247,19 +266,19 @@ func toIrType(n uBasictypes.Type) types.Type {
 			params = append(params, pt)
 		}
 		result := toIrType(uBasicType.Result)
-		typ := types.NewFunc(result, params...)
+		typ := irtypes.NewFunc(result, params...)
 		typ.Variadic = variadic
 		t = typ
 	case *uBasictypes.Sub:
-		var params []types.Type
+		var params []irtypes.Type
 		variadic := false
 		for _, p := range uBasicType.Params {
 			pt := toIrType(p.Type)
 			dbg.Printf("converting type %#v to %#v", p.Type, pt)
 			params = append(params, pt)
 		}
-		result := types.Void
-		typ := types.NewFunc(result, params...)
+		result := irtypes.Void
+		typ := irtypes.NewFunc(result, params...)
 		typ.Variadic = variadic
 		t = typ
 	default:
@@ -279,9 +298,9 @@ const throwException = ".throwException"
 
 func (m *Module) genErrorHandler() {
 	// throw exception function
-	throwException := m.NewFunc(throwException, types.Void)
+	throwException := m.NewFunc(throwException, irtypes.Void)
 	entry0 := throwException.NewBlock("")
-	entry0.NewCall(m.LookupFunction("longjmp"), m.LookupGlobal(JumpBuffer), constant.NewInt(types.I32, 1))
+	entry0.NewCall(m.LookupFunction("longjmp"), m.LookupGlobal(JumpBuffer), constant.NewInt(irtypes.I32, 1))
 	entry0.NewUnreachable()
 
 }
@@ -289,9 +308,9 @@ func (m *Module) genErrorHandler() {
 func (m *Module) genExternals() {
 	m.genGC()
 	// Convenience types and values.
-	i32 := types.I32
-	i8 := types.I8
-	i8ptr := types.NewPointer(i8)
+	i32 := irtypes.I32
+	i8 := irtypes.I8
+	i8ptr := irtypes.NewPointer(i8)
 
 	// io functions -----------------
 	printf := m.NewFunc("printf", i32, ir.NewParam("format", i8ptr))
@@ -318,19 +337,19 @@ func (m *Module) genExternals() {
 	m.newGlobalStringConstant("False", "false")
 
 	// exception handling global variables
-	m.NewFunc("exit", types.Void, ir.NewParam("status", types.I32))
-	jump_bufferType := types.NewArray(48, types.I32)
+	m.NewFunc("exit", irtypes.Void, ir.NewParam("status", irtypes.I32))
+	jump_bufferType := irtypes.NewArray(48, irtypes.I32)
 	jump_buffer := m.NewGlobal(JumpBuffer, jump_bufferType)
 	jump_buffer.Init = constant.NewZeroInitializer(jump_bufferType)
-	errorNumber := m.NewGlobal(ErrorNumber, types.I32)
-	errorNumber.Init = constant.NewInt(types.I8, 0)
-	errorMessageType := types.NewArray(256, types.I8)
+	errorNumber := m.NewGlobal(ErrorNumber, irtypes.I32)
+	errorNumber.Init = constant.NewInt(irtypes.I8, 0)
+	errorMessageType := irtypes.NewArray(256, irtypes.I8)
 	errorMessage := m.NewGlobal(ErrorMessage, errorMessageType)
 	errorMessage.Init = constant.NewZeroInitializer(errorMessageType)
 
 	// setjmp and longjmp
-	m.NewFunc("setjmp", types.I32, ir.NewParam("", types.NewPointer(types.I32)))
-	m.NewFunc("longjmp", types.Void, ir.NewParam("", types.NewPointer(types.I32)), ir.NewParam("", types.I32))
+	m.NewFunc("setjmp", irtypes.I32, ir.NewParam("", irtypes.NewPointer(irtypes.I32)))
+	m.NewFunc("longjmp", irtypes.Void, ir.NewParam("", irtypes.NewPointer(irtypes.I32)), ir.NewParam("", irtypes.I32))
 
 	// exception constant
 	divisionByZero := constant.NewCharArrayFromString("Division by zero\n\x00")
@@ -357,14 +376,14 @@ func (m *Module) checkIfDivisionByZero(f *Function, val value.Value) {
 	end := f.NewBlock("")
 
 	switch val.Type().(type) {
-	case *types.FloatType:
+	case *irtypes.FloatType:
 		// check if the value is zero
-		zero := constant.NewFloat(types.Float, 0)
+		zero := constant.NewFloat(irtypes.Float, 0)
 		cond := f.currentBlock.NewFCmp(enum.FPredOEQ, val, zero)
 		f.currentBlock.NewCondBr(cond, trueBranch.Block, end.Block)
-	case *types.IntType:
+	case *irtypes.IntType:
 		// check if the value is zero
-		zero := constant.NewInt(types.I32, 0)
+		zero := constant.NewInt(irtypes.I32, 0)
 		cond := f.currentBlock.NewICmp(enum.IPredEQ, val, zero)
 		f.currentBlock.NewCondBr(cond, trueBranch.Block, end.Block)
 	}
@@ -372,7 +391,7 @@ func (m *Module) checkIfDivisionByZero(f *Function, val value.Value) {
 	// trueBranch:
 	f.Blocks = append(f.Blocks, f.currentBlock.Block)
 	f.currentBlock = trueBranch
-	errorNum := constant.NewInt(types.I32, ErrorDivisionByZero)
+	errorNum := constant.NewInt(irtypes.I32, ErrorDivisionByZero)
 	f.currentBlock.NewStore(errorNum, m.LookupGlobal(ErrorNumber))
 	f.currentBlock.NewCall(m.LookupFunction("strcpy"), m.LookupGlobal(ErrorMessage), m.LookupGlobal(".divisionByZero"))
 	f.currentBlock.NewCall(m.LookupFunction(throwException))
@@ -384,9 +403,6 @@ func (m *Module) checkIfDivisionByZero(f *Function, val value.Value) {
 
 // checkArrayBounds checks if the given index is out of bounds, if so generate an error message and return.
 func (m *Module) checkArrayBounds(f *Function, index value.Value, length value.Value) {
-
-	// TODO add compile time chech for array bounds
-
 	zero := constZero(index.Type())
 	trueBranch1 := f.NewBlock("")
 	end1 := f.NewBlock("")
@@ -399,7 +415,7 @@ func (m *Module) checkArrayBounds(f *Function, index value.Value, length value.V
 	// trueBranch1:
 	f.Blocks = append(f.Blocks, f.currentBlock.Block)
 	f.currentBlock = trueBranch1
-	errorNumber := constant.NewInt(types.I32, ErrorIndexOutOfBounds)
+	errorNumber := constant.NewInt(irtypes.I32, ErrorIndexOutOfBounds)
 	f.currentBlock.NewStore(errorNumber, m.LookupGlobal(ErrorNumber))
 	f.currentBlock.NewCall(m.LookupFunction("strcpy"), m.LookupGlobal(ErrorMessage), m.LookupGlobal(".arrayIndexOutOfBounds"))
 	f.currentBlock.NewCall(m.LookupFunction(throwException))
@@ -414,4 +430,38 @@ func (m *Module) checkArrayBounds(f *Function, index value.Value, length value.V
 	// end2:
 	f.Blocks = append(f.Blocks, f.currentBlock.Block)
 	f.currentBlock = end2
+}
+
+// InitArray initializes an array of the given size and type.
+func (f *Function) initArray(array value.Value, size int64, elementType irtypes.Type) {
+	loopCond := f.NewBlock("")
+	loopBody := f.NewBlock("")
+	loopEnd := f.NewBlock("")
+
+	// inconming block:
+	index := f.currentBlock.NewAlloca(irtypes.I32)
+	f.currentBlock.NewStore(constZero(irtypes.I32), index)
+	f.currentBlock.NewBr(loopCond.Block)
+
+	// loopCond:
+	f.Blocks = append(f.Blocks, f.currentBlock.Block)
+	f.currentBlock = loopCond
+	index_val := f.currentBlock.NewLoad(irtypes.I32, index)
+	cond := f.currentBlock.NewICmp(enum.IPredULT, index_val, constant.NewInt(irtypes.I32, size))
+	f.currentBlock.NewCondBr(cond, loopBody.Block, loopEnd.Block)
+
+	// loopBody:
+	f.Blocks = append(f.Blocks, f.currentBlock.Block)
+	f.currentBlock = loopBody
+	zero := constZero(elementType)
+	gep := f.currentBlock.NewGetElementPtr(elementType, array, index_val)
+	f.currentBlock.NewStore(zero, gep)
+	tmp := f.currentBlock.NewLoad(irtypes.I32, index)
+	tmp1 := f.currentBlock.NewAdd(tmp, constant.NewInt(irtypes.I32, 1))
+	f.currentBlock.NewStore(tmp1, index)
+	f.currentBlock.NewBr(loopCond.Block)
+
+	// loopEnd:
+	f.Blocks = append(f.Blocks, f.currentBlock.Block)
+	f.currentBlock = loopEnd
 }

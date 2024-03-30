@@ -239,12 +239,17 @@ func check(file *ast.File, exprTypes map[ast.Expression]types.Type) error {
 // VerifyParameters verifies that the given call arguments are compatible with
 // the given function parameters.
 func VerifyParameters(call *ast.CallOrIndexExpr, funcOrSubType types.SubOrFunc, exprTypes map[ast.Expression]types.Type) error {
+	lastParamIsParamArray := false
+	if len(funcOrSubType.GetParams()) > 0 {
+		lastParamIsParamArray = funcOrSubType.GetParams()[len(funcOrSubType.GetParams())-1].ParamArray
+	}
+
 	// there are 3 possibles cases:
 	// 1. same number of parameters and arguments
 	// 2. more parameters than arguments (optional parameters)
 	// 3. more arguments than parameters (paramArray argument)
 	// lets start with the first case
-	if len(call.Args) == len(funcOrSubType.GetParams()) && !funcOrSubType.GetParams()[len(funcOrSubType.GetParams())-1].ParamArray {
+	if len(call.Args) == len(funcOrSubType.GetParams()) && !lastParamIsParamArray {
 		// verify that required parameters are compatible with arguments
 		for i, arg := range call.Args {
 			if !isCompatibleArg(funcOrSubType.GetParams()[i].Type, exprTypes[arg]) {
@@ -319,6 +324,13 @@ func isCompatibleArg(arg, param types.Type) bool {
 
 // isCompatible reports whether t and u are of compatible types.
 func isCompatible(t, u types.Type) bool {
+	if t, ok := t.(*types.ByRef); ok {
+		return isCompatible(t.Type, u)
+	}
+	if u, ok := u.(*types.ByRef); ok {
+		return isCompatible(t, u.Type)
+	}
+
 	if types.Equal(t, u) {
 		return true
 	}

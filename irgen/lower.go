@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	"uBasic/ast"
@@ -27,6 +26,11 @@ import (
 	"github.com/llir/llvm/ir/enum"
 	irtypes "github.com/llir/llvm/ir/types"
 	"github.com/llir/llvm/ir/value"
+)
+
+const (
+	ArrayVarSizeName   = ".%s_%s_%d" // function, array name, dimension
+	globalFunctionName = "global"
 )
 
 func GenToFile(file *ast.File, info *sem.Info, filename string) error {
@@ -133,9 +137,6 @@ func (m *Module) funcDecl(n *ast.FuncDecl) {
 	for _, p := range n.FuncType.Params {
 		astParamType, _ := p.Type()
 		paramType := toIrType(astParamType)
-		if !p.ByVal {
-			paramType = irtypes.NewPointer(paramType)
-		}
 		param := ir.NewParam(p.Name().String(), paramType)
 		params = append(params, param)
 		if p.ParamArray {
@@ -169,9 +170,6 @@ func (m *Module) subDecl(n *ast.SubDecl) {
 	for _, p := range n.SubType.Params {
 		astParamType, _ := p.Type()
 		paramType := toIrType(astParamType)
-		if !p.ByVal {
-			paramType = irtypes.NewPointer(paramType)
-		}
 		param := ir.NewParam(p.Name().String(), paramType)
 		params = append(params, param)
 		if p.ParamArray {
@@ -367,8 +365,14 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 	arrayTyp := toIrType(typ1.Type)
 	dimensions := n.VarType.Dimensions
 	if len(dimensions) == 0 {
-		//m.glocalDynamicArrayDecl(n)
-		panic("dynamic arrays not yet implemented")
+		typ := irtypes.NewPointer(arrayTyp)
+		global := ir.NewGlobalDef(ident.Name, constant.NewNull(typ))
+		m.setIdentValue(ident, global)
+
+		// allocate length of array variable
+		constName := fmt.Sprintf(ArrayVarSizeName, globalFunctionName, ident.Name, 0)
+		m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, 0))
+		return
 	}
 
 	// for multi-dimensional arrays, create an array of single-dimension
@@ -389,7 +393,7 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 		}
 
 		// allocate length of array constant
-		constName := fmt.Sprintf(".%s_%d", ident.Name, i)
+		constName := fmt.Sprintf(ArrayVarSizeName, globalFunctionName, ident.Name, i)
 		cnst := m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, dimension))
 		cnst.Immutable = true
 
@@ -405,65 +409,31 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 
 // --- [ Global constant declaration ] -----------------------------------------
 
-func (m Module) newGlobalConstant(node *ast.ConstDeclItem) {
-	// all constants are evaluated at compile time
-	Object := eval.Eval(nil, node.ConstValue, m.env)
-	m.env.Set(node.ConstName.Name, Object)
-
-	value := Object.String()
-	if Object.Type() == object.ERROR_OBJ {
-		panic("error evaluating constant : " + Object.String())
-	}
+func (m Module) newGlobalConstant(node *ast.ConstDeclItem) value.Value {
+	valuestr, valueInt, valueFloat, valueBool := m.constantAstToValues(node)
+	var a *ir.Global
+	dbg.Printf("create global constant: %v", node.ConstName.Name)
 
 	typ := strings.ToLower(node.ConstType.Token().Literal)
 	switch typ {
 	case "integer":
-		val, err := strconv.ParseInt(value, 10, 32)
-		if err != nil {
-			panic("error converting string to int")
-		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewInt(irtypes.I32, val))
-		cnst.Immutable = true
-		m.setIdentValue(node.ConstName, cnst)
+		a = m.NewGlobalDef(node.ConstName.Name, constant.NewInt(irtypes.I32, valueInt))
 	case "long":
-		val, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			panic("error converting string to long")
-		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewInt(irtypes.I64, val))
-		cnst.Immutable = true
-		m.setIdentValue(node.ConstName, cnst)
-	case "single", "currency":
-		val, err := strconv.ParseFloat(value, 32)
-		if err != nil {
-			panic("error converting string to float")
-		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Float, val))
-		cnst.Immutable = true
-		m.setIdentValue(node.ConstName, cnst)
+		a = m.NewGlobalDef(node.ConstName.Name, constant.NewInt(irtypes.I64, valueInt))
+	case "single", "currency", "date":
+		a = m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Float, valueFloat))
 	case "double":
-		val, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			panic("error converting string to double")
-		}
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Double, val))
-		cnst.Immutable = true
-		m.setIdentValue(node.ConstName, cnst)
+		a = m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Double, valueFloat))
 	case "boolean":
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewBool(strings.EqualFold(value, "true")))
-		cnst.Immutable = true
-		m.setIdentValue(node.ConstName, cnst)
+		a = m.NewGlobalDef(node.ConstName.Name, constant.NewBool(valueBool))
 	case "string":
-		m.newGlobalStringConstant(value, node.ConstName.Name)
-	case "date":
-		floatDate := FromDateStringToFloat(value)
-		cnst := m.NewGlobalDef(node.ConstName.Name, constant.NewFloat(irtypes.Double, floatDate))
-		cnst.Immutable = true
-		m.setIdentValue(node.ConstName, cnst)
+		a = m.newGlobalStringConstant(valuestr, node.ConstName.Name)
 	default:
-		panic("unknown type")
+		panic("unknown type: " + typ)
 	}
-
+	a.Immutable = true
+	m.setIdentValue(node.ConstName, a)
+	return a
 }
 
 var globalCounter int
@@ -497,9 +467,9 @@ func (m *Module) cleanString(s string) string {
 
 // --- [ Local variable definition ] -------------------------------------------
 
-// localVarDef lowers the given local variable definition to LLVM IR, emitting
+// localVarDecl lowers the given local variable definition to LLVM IR, emitting
 // code to f.
-func (m *Module) localVarDef(f *Function, n ast.VarDecl) value.Value {
+func (m *Module) localVarDecl(f *Function, n ast.VarDecl) {
 	// Input:
 	//    void f() {
 	//       int a;           // <-- relevant line
@@ -507,6 +477,11 @@ func (m *Module) localVarDef(f *Function, n ast.VarDecl) value.Value {
 	// Output:
 	//    %a = alloca i32
 	ident := n.Name()
+	if array, ok := n.(*ast.ArrayDecl); ok {
+		m.localArrayDecl(f, array)
+		return
+	}
+
 	dbg.Printf("create local variable: %v", n)
 	typ0, err := n.Type()
 	if err != nil {
@@ -515,46 +490,100 @@ func (m *Module) localVarDef(f *Function, n ast.VarDecl) value.Value {
 	typ := toIrType(typ0)
 	allocaInst := f.currentBlock.NewAlloca(typ)
 	// Emit local variable definition.
-	return f.emitLocal(ident, allocaInst)
+	f.emitLocal(ident, allocaInst)
+}
+
+// localArrayDecl lowers the given global array declaration to LLVM IR, emitting code to m.
+func (m *Module) localArrayDecl(f *Function, n *ast.ArrayDecl) {
+	// Input:
+	//    void f() {
+	//       int a[3];           // <-- relevant line
+	//    }
+	// Output:
+	//    %a = alloca [3 x i32] zeroinitializer
+	ident := n.Name()
+	dbg.Printf("create local array: %v", n)
+	typ0, err := n.Type()
+	if err != nil {
+		panic(fmt.Sprintf("unable to create type; %v", err))
+	}
+	// get array type
+	typ1, _ := typ0.(*uBasictypes.Array)
+	arrayTyp := toIrType(typ1.Type)
+
+	dimensions := n.VarType.Dimensions
+	if len(dimensions) == 0 {
+		typ := irtypes.NewPointer(arrayTyp)
+		array := f.currentBlock.NewAlloca(typ)
+		f.emitLocal(ident, array)
+
+		// allocate length of array variable
+		constName := fmt.Sprintf(ArrayVarSizeName, f.Name(), ident.Name, 0)
+		m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, 0))
+		return
+	}
+	// for multi-dimensional arrays, create an array of single-dimension
+	// we will multiply the dimensions to get the total size of the array
+
+	// calculate the total size of the array
+	env := object.NewEnvironment()
+	size := int64(1)
+	for i := len(dimensions) - 1; i >= 0; i-- {
+		result := eval.Eval(nil, dimensions[i], env)
+		var dimension int64
+		switch result.(type) {
+		case *object.Long:
+			dimension = result.GetValue().(int64)
+			size *= dimension
+		default:
+			panic("unknown expression: " + result.String())
+		}
+
+		// allocate length of array constant
+		constName := fmt.Sprintf(ArrayVarSizeName, f.Name(), ident.Name, i)
+		cnst := m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, dimension))
+		cnst.Immutable = true
+
+	}
+
+	array1 := f.currentBlock.NewAlloca(&irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
+	f.initArray(array1, size, arrayTyp)
+	f.emitLocal(ident, array1)
+
 }
 
 // constDecl lowers the given constant declaration to LLVM IR, emitting code to
 // f.
-func (m *Module) localConstDecl(f *Function, cnst *ast.ConstDeclItem) value.Value {
-	switch cnst.ConstValue.(type) {
-	case *ast.BasicLit:
-		switch cnst.ConstValue.(*ast.BasicLit).Kind {
-		case token.LongLit:
-			var typ *irtypes.IntType
-			astType := cnst.ConstType.(*ast.Identifier).Name
-			switch strings.ToLower(astType) {
-			case "integer":
-				typ = irtypes.I32
+func (m *Module) localConstDecl(f *Function, node *ast.ConstDeclItem) value.Value {
+	valuestr, valueInt, valueFloat, valueBool := m.constantAstToValues(node)
+	dbg.Printf("create local constant: %v", node.ConstName.Name)
 
-			case "long":
-				typ = irtypes.I64
-			}
-
-			identifier := cnst.ConstName
-			a := f.currentBlock.NewAlloca(typ)
-			a.SetName(identifier.Name)
-			// get value
-			env := object.NewEnvironment()
-			Object := eval.Eval(nil, cnst.ConstValue, env)
-			var value int64
-			switch Object.(type) {
-			case *object.Long:
-				value = Object.GetValue().(int64)
-			default:
-				panic("unknown expression: " + Object.String())
-			}
-			f.currentBlock.NewStore(constant.NewInt(typ, value), a)
-			// Emit local variable definition.
-			return f.emitLocal(identifier, a)
-		}
-		// TODO: add support for other type of constants
+	var a *ir.InstAlloca
+	typ := strings.ToLower(node.ConstType.Token().Literal)
+	switch typ {
+	case "integer":
+		a = f.currentBlock.NewAlloca(irtypes.I32)
+		f.currentBlock.NewStore(constant.NewInt(irtypes.I32, valueInt), a)
+	case "long":
+		a = f.currentBlock.NewAlloca(irtypes.I64)
+		f.currentBlock.NewStore(constant.NewInt(irtypes.I64, valueInt), a)
+	case "single", "currency", "date":
+		a = f.currentBlock.NewAlloca(irtypes.Float)
+		f.currentBlock.NewStore(constant.NewFloat(irtypes.Float, valueFloat), a)
+	case "double":
+		a = f.currentBlock.NewAlloca(irtypes.Double)
+		f.currentBlock.NewStore(constant.NewFloat(irtypes.Double, valueFloat), a)
+	case "boolean":
+		a = f.currentBlock.NewAlloca(irtypes.I1)
+		f.currentBlock.NewStore(constant.NewBool(valueBool), a)
+	case "string":
+		text := m.cleanString(valuestr) + "\x00"
+		a = f.currentBlock.NewAlloca(irtypes.NewArray(uint64(len(text)), irtypes.I8))
+		f.currentBlock.NewStore(constant.NewCharArrayFromString(text), a)
+	default:
+		panic("unknown type: " + typ)
 	}
-	panic("unknown constant type")
+	return f.emitLocal(node.ConstName, a)
 }
 
 // --- [ Statements ] ----------------------------------------------------------
@@ -575,6 +604,12 @@ func (m *Module) stmt(f *Function, stmt ast.Statement) {
 		m.ifStmt(f, stmt)
 	case *ast.WhileStmt:
 		m.whileStmt(f, stmt)
+	case *ast.UntilStmt:
+		m.untilStmt(f, stmt)
+	case *ast.DoWhileStmt:
+		m.doWhileStmt(f, stmt)
+	case *ast.DoUntilStmt:
+		m.doUntilStmt(f, stmt)
 	case *ast.CallSubStmt:
 		m.callSubStmt(f, stmt)
 	case *ast.SpecialStmt:
@@ -582,7 +617,7 @@ func (m *Module) stmt(f *Function, stmt ast.Statement) {
 	case *ast.DimDecl:
 		if !m.SkipLocalVariables {
 			for _, vars := range stmt.Vars {
-				m.localVarDef(f, vars)
+				m.localVarDecl(f, vars)
 			}
 		}
 	case *ast.ConstDecl:
@@ -698,6 +733,78 @@ func (m *Module) whileStmt(f *Function, stmt *ast.WhileStmt) {
 	f.currentBlock = endBranch
 }
 
+// untilStmt lowers the given until statement to LLVM IR, emitting code to f.
+func (m *Module) untilStmt(f *Function, stmt *ast.UntilStmt) {
+	condBranch := f.NewBlock("")
+	termBr := ir.NewBr(condBranch.Block)
+	f.currentBlock.SetTerm(termBr)
+	f.currentBlock = condBranch
+	cond := m.cond(f, stmt.Condition)
+	bodyBranch := f.NewBlock("")
+	endBranch := f.NewBlock("")
+	termCondBr := ir.NewCondBr(cond, endBranch.Block, bodyBranch.Block)
+	f.currentBlock.SetTerm(termCondBr)
+	f.currentBlock = bodyBranch
+	m.BodyStmt(f, stmt.Body)
+	// Emit jump if body doesn't end with return statement (i.e. the current
+	// basic block is none nil).
+	if f.currentBlock != nil {
+		termBr := ir.NewBr(condBranch.Block)
+		f.currentBlock.SetTerm(termBr)
+	}
+	f.currentBlock = endBranch
+}
+
+// doWhileStmt lowers the given do-while statement to LLVM IR, emitting code to f.
+func (m *Module) doWhileStmt(f *Function, stmt *ast.DoWhileStmt) {
+	bodyBranch := f.NewBlock("")
+	condBranch := f.NewBlock("")
+	endBranch := f.NewBlock("")
+
+	termBr := ir.NewBr(bodyBranch.Block)
+	f.currentBlock.SetTerm(termBr)
+
+	// Body:
+	f.currentBlock = bodyBranch
+	m.BodyStmt(f, stmt.Body)
+	termBr = ir.NewBr(condBranch.Block)
+	f.currentBlock.SetTerm(termBr)
+
+	// Condition:
+	f.currentBlock = condBranch
+	cond := m.cond(f, stmt.Condition)
+	termCondBr := ir.NewCondBr(cond, bodyBranch.Block, endBranch.Block)
+	f.currentBlock.SetTerm(termCondBr)
+
+	// end:
+	f.currentBlock = endBranch
+}
+
+// doWhileStmt lowers the given do-while statement to LLVM IR, emitting code to f.
+func (m *Module) doUntilStmt(f *Function, stmt *ast.DoUntilStmt) {
+	bodyBranch := f.NewBlock("")
+	condBranch := f.NewBlock("")
+	endBranch := f.NewBlock("")
+
+	termBr := ir.NewBr(bodyBranch.Block)
+	f.currentBlock.SetTerm(termBr)
+
+	// Body:
+	f.currentBlock = bodyBranch
+	m.BodyStmt(f, stmt.Body)
+	termBr = ir.NewBr(condBranch.Block)
+	f.currentBlock.SetTerm(termBr)
+
+	// Condition:
+	f.currentBlock = condBranch
+	cond := m.cond(f, stmt.Condition)
+	termCondBr := ir.NewCondBr(cond, endBranch.Block, bodyBranch.Block)
+	f.currentBlock.SetTerm(termCondBr)
+
+	// end:
+	f.currentBlock = endBranch
+}
+
 // --- [ Expressions ] ----------------------------------------------------------
 
 // cond lowers the given condition expression to LLVM IR, emitting code to f.
@@ -810,6 +917,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// +
 	case token.Add:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -820,6 +928,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// -
 	case token.Minus:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -831,6 +940,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// *
 	case token.Mul:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -842,6 +952,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// /
 	case token.Div:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		m.checkIfDivisionByZero(f, y)
 		switch x.Type().String() {
@@ -854,6 +965,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// <
 	case token.Lt:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -865,6 +977,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 		// >
 	case token.Gt:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -876,6 +989,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// <=
 	case token.Le:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -887,6 +1001,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// >=
 	case token.Ge:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -898,6 +1013,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// <>
 	case token.Neq:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -908,6 +1024,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 	// ==
 	case token.Eq:
 		x, y := m.expr(f, n.Left), m.expr(f, n.Right)
+		x, y = m.pointerToValue(f, x), m.pointerToValue(f, y)
 		x, y = m.implicitConversion(f, x, y)
 		switch x.Type().String() {
 		case "i32", "i64":
@@ -918,6 +1035,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 
 	// And
 	case token.And:
+		// todo : parameter by reference
 		x := m.cond(f, n.Left)
 
 		start := f.currentBlock
@@ -941,6 +1059,7 @@ func (m *Module) binaryExpr(f *Function, n *ast.BinaryExpr) value.Value {
 		return f.currentBlock.NewPhi(incs...)
 	// or
 	case token.Or:
+		// todo : parameter by reference
 		x := m.cond(f, n.Left)
 
 		start := f.currentBlock
@@ -1021,17 +1140,11 @@ func (m *Module) callExpr(f *Function, callOrIndexExpr *ast.CallOrIndexExpr) val
 	_ = result
 	var args []value.Value
 	decl := callOrIndexExpr.Identifier.Decl
-	var astParams []ast.ParamItem
-	astFunc, ok := decl.(*ast.FuncDecl)
-	if ok {
-		astParams = astFunc.FuncType.Params
-	} else {
-		astSub, ok := decl.(*ast.SubDecl)
-		if ok {
-			astParams = astSub.SubType.Params
-		}
+	astParams := decl.(ast.FuncOrSub).GetParams()
+	isParamArray := false
+	if len(astParams) > 0 {
+		isParamArray = astParams[len(astParams)-1].ParamArray
 	}
-	// todo pass by reference or value
 
 	if len(callOrIndexExpr.Args) < len(astParams) {
 		i := -1
@@ -1048,7 +1161,7 @@ func (m *Module) callExpr(f *Function, callOrIndexExpr *ast.CallOrIndexExpr) val
 			defaultValue = m.convert(f, defaultValue, params[j])
 			args = append(args, defaultValue)
 		}
-	} else if astParams[len(astParams)-1].ParamArray {
+	} else if isParamArray {
 		i := 0
 		var arg ast.Expression
 		for i, arg = range callOrIndexExpr.Args {
@@ -1100,16 +1213,6 @@ func (m *Module) ident(f *Function, ident *ast.Identifier) value.Value {
 		pos := ident.Decl.Name().Tok.Position.Absolute
 		return f.idents[pos]
 	}
-	param, ok := ident.Decl.(*ast.ParamItem)
-	if ok {
-		// if variable is byref
-		if !param.ByVal {
-			// Emit load instruction.
-			src := m.valueFromIdent(f, ident)
-			srcElemType := src.Type().(*irtypes.PointerType).ElemType
-			return f.currentBlock.NewLoad(srcElemType, src)
-		}
-	}
 
 	switch typ := m.typeOf(ident).(type) {
 	case *irtypes.ArrayType:
@@ -1145,10 +1248,7 @@ func (m *Module) ident(f *Function, ident *ast.Identifier) value.Value {
 		gep.InBounds = true
 		return gep
 	case *irtypes.PointerType:
-		// Emit load instruction.
-		src := m.valueFromIdent(f, ident)
-		srcElemType := src.Type().(*irtypes.PointerType).ElemType
-		return f.currentBlock.NewLoad(srcElemType, src)
+		return m.valueFromIdent(f, ident)
 	default:
 		return m.valueFromIdent(f, ident)
 	}
@@ -1157,12 +1257,12 @@ func (m *Module) ident(f *Function, ident *ast.Identifier) value.Value {
 // identUse lowers the given identifier usage to LLVM IR, emitting code to f.
 func (m *Module) identUse(f *Function, ident *ast.Identifier) value.Value {
 	v := m.ident(f, ident)
-	typ := m.typeOf(ident)
-	if isRef(typ) {
-		return v
-	}
-	elemType := v.Type().(*irtypes.PointerType).ElemType
-	return f.currentBlock.NewLoad(elemType, v)
+	// typ := m.typeOf(ident)
+	//if isRef(typ) {
+	return v
+	// }
+	// elemType := v.Type().(*irtypes.PointerType).ElemType
+	// return f.currentBlock.NewLoad(elemType, v)
 }
 
 // identDef lowers the given identifier definition to LLVM IR, emitting code to f.
@@ -1194,6 +1294,11 @@ func (m *Module) identDef(f *Function, ident *ast.Identifier, v value.Value) {
 
 		f.currentBlock.NewStore(memoryBlock, dest)
 		f.currentBlock.NewCall(m.LookupFunction("strcpy"), memoryBlock, v)
+	} else if ptrType, ok := addr.Type().(*irtypes.PointerType); ok {
+		if _, ok := ptrType.ElemType.(*irtypes.PointerType); ok {
+			addr = f.currentBlock.NewLoad(ptrType.ElemType, addr)
+		}
+		f.currentBlock.NewStore(v, addr)
 	} else {
 		f.currentBlock.NewStore(v, addr)
 	}
@@ -1214,6 +1319,9 @@ func (m *Module) indexExprDef(f *Function, n *ast.CallOrIndexExpr, v value.Value
 			panic("error evaluating array dimensions")
 		}
 	}
+	// find the declaration scope of the array
+	scope := m.getDeclarationScope(ident)
+
 	indices := make([]value.Value, len(n.Args))
 	var compoundIndex value.Value
 	// verify that the number of indices is equal to the number of dimensions of the array
@@ -1221,7 +1329,7 @@ func (m *Module) indexExprDef(f *Function, n *ast.CallOrIndexExpr, v value.Value
 		for i, index := range n.Args {
 			indices[i] = m.expr(f, index)
 			// load array dimension
-			dimVarName := fmt.Sprintf(".%s_%d", n.Identifier.Name, i)
+			dimVarName := fmt.Sprintf(ArrayVarSizeName, scope, n.Identifier.Name, i)
 			dimVar := m.LookupGlobal(dimVarName)
 			dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
 			// compare index with dimension
@@ -1255,12 +1363,11 @@ func (m *Module) indexExprDef(f *Function, n *ast.CallOrIndexExpr, v value.Value
 	v = m.convert(f, v, addrType.ElemType)
 	// if string we need to allocate memory for it
 	t, _ := ident.Decl.Type()
-	if t.String() == "String" {
+	if strings.HasSuffix(t.String(), "String") {
 		// calculate length of string
 		length := f.currentBlock.NewCall(m.LookupFunction("strlen"), v)
 		// -----------------------------------------------------------
 		memoryBlock := m.GCmalloc(f, length)
-		// memoryBlock := f.currentBlock.NewCall(m.LookupFunction("malloc"), length)
 		// -----------------------------------------------------------
 
 		f.currentBlock.NewStore(memoryBlock, addr)
@@ -1362,6 +1469,9 @@ func (m *Module) indexExpr(f *Function, n *ast.CallOrIndexExpr) value.Value {
 		indices := make([]value.Value, len(n.Args))
 		var compoundIndex value.Value
 
+		// find the declaration scope of the array
+		scope := m.getDeclarationScope(n.Identifier)
+
 		// verify that the number of indices is equal to the number of dimensions of the array
 		// or one less if the array is a dynamic array
 
@@ -1369,7 +1479,7 @@ func (m *Module) indexExpr(f *Function, n *ast.CallOrIndexExpr) value.Value {
 			for i, index := range n.Args {
 				indices[i] = m.expr(f, index)
 				// load array dimension
-				dimVarName := fmt.Sprintf(".%s_%d", n.Identifier.Name, i)
+				dimVarName := fmt.Sprintf(ArrayVarSizeName, scope, n.Identifier.Name, i)
 				dimVar := m.LookupGlobal(dimVarName)
 				dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
 				// compare index with dimension
@@ -1395,7 +1505,7 @@ func (m *Module) indexExpr(f *Function, n *ast.CallOrIndexExpr) value.Value {
 		// calculate address of array element
 		// Emit getelementptr instruction.
 		zero := constZero(irtypes.I64)
-		resultAddr := f.currentBlock.NewGetElementPtr(arrayElemType, array, zero, compoundIndex)
+		resultAddr := f.currentBlock.NewGetElementPtr(arrayType, array, zero, compoundIndex)
 		// Emit load instruction.
 		return f.currentBlock.NewLoad(arrayElemType, resultAddr)
 	}

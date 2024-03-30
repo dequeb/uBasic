@@ -54,6 +54,16 @@ type (
 		Dimensions []int
 	}
 
+	// A byRef represents a pointer to a value (passed by reference).
+	//
+	// Examples.
+	//
+	//    Dim a(10) As Long
+	//    Dim b(5, 2) As String
+	ByRef struct {
+		Type Type
+	}
+
 	// A Func represents a function signature.
 	//
 	Func struct {
@@ -119,7 +129,7 @@ type Field struct {
 	Name string
 	// What is the default value for this field?
 	DefaultValue string
-	// Is field by ref
+	// Is field by value
 	ByVal bool
 	// is field optional
 	Optional bool
@@ -185,6 +195,20 @@ func (t *Array) Equal(u Type) bool {
 			}
 		}
 		return true
+	}
+	return false
+}
+
+// Equal reports whether t and u are of equal type.
+func (t *ByRef) Equal(u Type) bool {
+	if u == nil {
+		return false
+	}
+	if u, ok := u.(*ByRef); ok {
+		return t.Type.Equal(u.Type)
+	}
+	if u, ok := u.(*Func); ok {
+		return u.Equal(t)
 	}
 	return false
 }
@@ -319,6 +343,10 @@ func (t *UserDefined) String() string {
 	return t.Name
 }
 
+func (t *ByRef) String() string {
+	return fmt.Sprintf("ByRef %v", t.Type)
+}
+
 func (t *Array) String() string {
 	buf := strings.Builder{}
 	buf.WriteString("(")
@@ -379,6 +407,11 @@ func (t *Basic) IsVariant() bool {
 func (t *Array) IsVariant() bool {
 	return t.Type.IsVariant()
 }
+
+func (t *ByRef) IsVariant() bool {
+	return t.Type.IsVariant()
+}
+
 func (t *Func) IsVariant() bool {
 	return t.Result.IsVariant()
 }
@@ -398,6 +431,7 @@ func (t *Class) IsVariant() bool {
 var (
 	_ Type = &Basic{}
 	_ Type = &Array{}
+	_ Type = &ByRef{}
 	_ Type = &Func{}
 	_ Type = &Sub{}
 	_ Type = &Class{}
@@ -406,14 +440,15 @@ var (
 
 // GetBasicType returns the basic type for the given type.
 func GetBasicType(t Type) BasicKind {
-	if t, ok := t.(*Basic); ok {
+	switch t := t.(type) {
+	case *Basic:
 		return t.Kind
-	}
-	if t, ok := t.(*Array); ok {
+	case *Array:
 		return GetBasicType(t.Type)
-	}
-	if t, ok := t.(*Func); ok {
+	case *Func:
 		return GetBasicType(t.Result)
+	case *ByRef:
+		return GetBasicType(t.Type)
 	}
 	return Invalid
 }

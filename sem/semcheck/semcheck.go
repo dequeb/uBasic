@@ -285,6 +285,7 @@ func checkReturnValueNotAssigned(call *ast.CallOrIndexExpr) error {
 
 // checkByRefArg reports an error if the given function call does not pass a variable as an argument for byref parameters.
 func checkByRefArg(call *ast.CallOrIndexExpr) error {
+
 	// check if function call returns a value
 	callType, err := call.Identifier.Decl.Type()
 	if err != nil {
@@ -293,6 +294,11 @@ func checkByRefArg(call *ast.CallOrIndexExpr) error {
 	if callType == nil {
 		return nil
 	}
+	_, ok := callType.(*types.Array)
+	if ok {
+		return nil
+	}
+
 	paramsDecl := callType.(types.SubOrFunc).GetParams()
 
 	// check if a variable is passed as an argument for byref parameters
@@ -302,6 +308,9 @@ func checkByRefArg(call *ast.CallOrIndexExpr) error {
 			if _, ok := arg.(*ast.Identifier); !ok {
 				return errors.Newf(arg.Token().Position, "argument %q must be a variable for byref parameter", arg)
 			}
+		}
+		if paramsDecl[i].ParamArray {
+			break
 		}
 	}
 	return nil

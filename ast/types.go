@@ -96,16 +96,17 @@ func NewType(n Node) (types.Type, error) {
 		}
 		return n.Decl.Type()
 	case *ParamItem:
-		if n.IsArray {
-			typ, err := NewType(n.VarType)
-			if err != nil {
-				return nil, err
-			}
-			array := &types.Array{Type: typ}
-			return array, nil
-		} else {
-			return NewType(n.VarType)
+		typ, err := NewType(n.VarType)
+		if err != nil {
+			return nil, err
 		}
+
+		if n.IsArray {
+			typ = &types.Array{Type: typ}
+		} else if !n.ByVal {
+			typ = &types.ByRef{Type: typ}
+		}
+		return typ, nil
 	case *ArrayType:
 		typ, err := NewType(n.Type)
 		if err != nil {
@@ -328,6 +329,12 @@ const (
 
 // higherPrecision returns the type of higher precision.
 func HigherPrecision(dest, source types.Type) (types.Type, error) {
+	if dest, ok := dest.(*types.ByRef); ok {
+		return HigherPrecision(dest.Type, source)
+	}
+	if source, ok := source.(*types.ByRef); ok {
+		return HigherPrecision(dest, source.Type)
+	}
 	if d, ok := dest.(*types.Basic); ok {
 		if s, ok := source.(*types.Basic); ok {
 			// same type
@@ -374,7 +381,7 @@ func HigherPrecision(dest, source types.Type) (types.Type, error) {
 			}
 		}
 	}
-	return nil, errors.Newf(universePos, "Types %T and %T are not compatible.", dest, source)
+	return nil, errors.Newf(universePos, "Types %T and %T are not compatible", dest, source)
 }
 
 func GetPrecisionOrder(typ types.BasicKind) int {

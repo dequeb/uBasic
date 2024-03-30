@@ -2170,7 +2170,7 @@ func (n *DimDecl) Type() (types.Type, error) {
 // Type returns the type of the declared identifier.
 func (n *ParamItem) Type() (types.Type, error) {
 	// check if it is an array
-	if n.IsArray {
+	if n.IsArray || !n.ByVal {
 		return NewType(n)
 	}
 	if n.VarType != nil {

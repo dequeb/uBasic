@@ -517,67 +517,67 @@ func evalConstDeclItem(node *ast.ConstDeclItem, env *object.Environment) object.
 	}
 	typ, ok := node.ConstType.(*ast.Identifier)
 	if ok {
-		val := node.ConstValue.String()
+		val := Eval(nil, node.ConstValue, env)
 		switch strings.ToLower(typ.Name) {
 		case "long$", "long":
-			obj, err := object.NewLong(val, node.Token().Position)
+			obj, err := object.NewLong(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Long: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Long: "+val.String())
 			}
 			obj.Const = true
 			return obj
 		case "integer$", "integer":
-			obj, err := object.NewInteger(val, node.Token().Position)
+			obj, err := object.NewInteger(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Integer: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Integer: "+val.String())
 			}
 			obj.Const = true
 			return obj
 		case "single$", "single":
-			obj, err := object.NewSingle(val, node.Token().Position)
+			obj, err := object.NewSingle(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Single: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Single: "+val.String())
 			}
 			obj.Const = true
 			return obj
 		case "double$", "double":
-			obj, err := object.NewDouble(val, node.Token().Position)
+			obj, err := object.NewDouble(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Double: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Double: "+val.String())
 			}
 			obj.Const = true
 			return obj
 		case "string$", "string":
-			obj := object.NewString(val, node.Token().Position)
+			obj := object.NewString(val.String(), node.Token().Position)
 			obj.Const = true
 			return obj
 		case "date$", "date":
-			obj, err := object.NewDate(val, node.Token().Position)
+			obj, err := object.NewDate(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Date: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Date: "+val.String())
 			}
 			obj.Const = true
 			return obj
 		case "boolean$", "boolean":
-			val = strings.ToLower(val)
-			if val == "true" {
+			str := strings.ToLower(val.String())
+			if str == "true" {
 				return object.NewBooleanByBool(true, node.Token().Position)
-			} else if val == "false" {
+			} else if str == "false" {
 				return object.NewBooleanByBool(false, node.Token().Position)
 			} else {
-				return object.NewError(node.Token().Position, "invalid value for Boolean: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Boolean: "+val.String())
 			}
 		case "currency$", "currency":
-			obj, err := object.NewCurrency(val, node.Token().Position)
+			obj, err := object.NewCurrency(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Currency: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Currency: "+val.String())
 			}
 			obj.Const = true
 			return obj
 		case "variant$", "variant":
-			obj, err := object.NewVariant(val, node.Token().Position)
+			obj, err := object.NewVariant(val.String(), node.Token().Position)
 			if err != nil {
-				return object.NewError(node.Token().Position, "invalid value for Variant: "+val)
+				return object.NewError(node.Token().Position, "invalid value for Variant: "+val.String())
 			}
 			obj.Const = true
 			return obj
@@ -1893,8 +1893,13 @@ func assignValueToParameters(params []ast.ParamItem, values *[]object.Object, en
 	// 2. number of parameters is less than the number of values
 	// 3. number of parameters is greater than the number of values
 
+	isParamArray := false
+	if len(params) > 0 {
+		isParamArray = params[len(params)-1].ParamArray
+	}
+
 	// 1. exact number of parameters and values
-	if len(params) == len(*values) && !params[len(params)-1].ParamArray {
+	if len(params) == len(*values) && isParamArray {
 		for i, param := range params {
 			if param.ByVal {
 				// create a copy of the value

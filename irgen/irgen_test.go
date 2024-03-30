@@ -578,3 +578,38 @@ func TestParamArray(t *testing.T) {
 	entryMain.NewRet(constant.NewInt(types.I32, 0))
 	fmt.Println(m)
 }
+
+func TestFloatGEN(*testing.T) {
+	// Create a new LLVM IR module.
+	m := ir.NewModule()
+
+	// Create a new global variable of type [15]i8 and name it "str".
+	hello := constant.NewCharArrayFromString("Hello, %lf!\n\x00")
+	str := m.NewGlobalDef("str", hello)
+	// Add external function declaration of printf.
+	printf := m.NewFunc("printf", types.I32, ir.NewParam("", types.NewPointer(types.I8)))
+	printf.Sig.Variadic = true
+
+	// Create a new function main which returns an i32.
+	main := m.NewFunc("main", types.I32)
+	entry := main.NewBlock("")
+
+	floatType := types.FloatType{Kind: types.FloatKindFloat}
+	x, err := constant.NewFloatFromString(&floatType, "0.99")
+	if err != nil {
+		panic("unable to parse float literal")
+	}
+	y, err := constant.NewFloatFromString(&floatType, "4.01")
+	if err != nil {
+		panic("unable to parse float literal")
+	}
+	z := entry.NewFAdd(x, y)
+	// printf tests
+
+	// str0 := entry.NewLoad(types.I8Ptr, str)
+	entry.NewCall(printf, str, z)
+
+	// Return 0 from main.
+	entry.NewRet(constant.NewInt(types.I32, 0))
+	fmt.Println(m)
+}

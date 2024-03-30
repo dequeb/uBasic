@@ -189,6 +189,7 @@ func (l *Lexer) NextToken() *token.Token {
 				l.Rewind()
 				tok.Literal = tok.Literal[:len(tok.Literal)-1]
 				tok.Kind = token.Illegal
+				tok.Position = l.lcPosition.Copy()
 			}
 			return &tok
 		} else if l.ch == '\'' {
@@ -199,7 +200,7 @@ func (l *Lexer) NextToken() *token.Token {
 				tok.Literal += string(l.ch)
 				l.readChar()
 			}
-
+			tok.Position = l.lcPosition.Copy()
 			return &tok
 		} else {
 			tok = newToken(token.Illegal, l.ch, l.lcPosition)

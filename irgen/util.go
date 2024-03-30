@@ -2,8 +2,11 @@ package irgen
 
 import (
 	"fmt"
+	"strconv"
 
 	"uBasic/ast"
+	"uBasic/eval"
+	"uBasic/object"
 
 	"github.com/llir/llvm/ir/constant"
 	irtypes "github.com/llir/llvm/ir/types"
@@ -38,7 +41,7 @@ func (m *Module) convert(f *Function, v value.Value, to irtypes.Type) value.Valu
 	} else if fromType, ok := from.(*irtypes.FloatType); ok {
 		return m.convertFloatType(f, v, fromType, to)
 	} else if _, ok := from.(*irtypes.PointerType); ok {
-		return m.convertPointerType(v, to)
+		return m.convertPointerType(f, v, to)
 	} else {
 		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
 	}
@@ -60,6 +63,7 @@ func (m *Module) convertIntType(f *Function, v value.Value, fromType *irtypes.In
 	} else if toFloatType, ok := to.(*irtypes.FloatType); ok {
 		return f.currentBlock.NewSIToFP(v, toFloatType)
 	} else if pt, ok := to.(*irtypes.PointerType); ok {
+
 		return m.convert(f, v, pt.ElemType)
 	} else {
 		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
@@ -103,14 +107,17 @@ func (m *Module) convertFloatType(f *Function, v value.Value, fromType *irtypes.
 }
 
 // convertPointerType converts the given integer value to the specified type, emitting code to f.
-func (m *Module) convertPointerType(v value.Value, to irtypes.Type) value.Value {
+func (m *Module) convertPointerType(f *Function, v value.Value, to irtypes.Type) value.Value {
 
-	_, ok := to.(*irtypes.IntType)
-	if !ok {
-		panic(fmt.Sprintf("support for converting to type %T not yet implemented", to))
+	var isPointer bool
+	var isPointerTo bool
+	_, isPointer = v.Type().(*irtypes.PointerType)
+	_, isPointerTo = to.(*irtypes.PointerType)
+
+	if isPointer && isPointerTo {
+		return v
 	}
-
-	return v
+	return m.convert(f, f.currentBlock.NewLoad(to, v), to)
 }
 
 // isLarger reports whether t has higher precision than u.
@@ -125,15 +132,28 @@ func isLarger(t, u irtypes.Type) bool {
 
 	if ts, ok := t.(Sizer); ok {
 		tSize = ts.Size()
-	} else if t, ok := t.(*irtypes.IntType); ok {
-		tSize = int(t.BitSize)
+	} else if ti, ok := t.(*irtypes.IntType); ok {
+		tSize = int(ti.BitSize)
+	} else if t, ok := t.(*irtypes.FloatType); ok {
+		switch t.Kind {
+		case irtypes.FloatKindFloat:
+			tSize = 32
+		case irtypes.FloatKindDouble:
+			tSize = 64
+		}
 	}
 	if us, ok := u.(Sizer); ok {
 		uSize = us.Size()
-	} else if u, ok := u.(*irtypes.IntType); ok {
-		uSize = int(u.BitSize)
+	} else if ui, ok := u.(*irtypes.IntType); ok {
+		uSize = int(ui.BitSize)
+	} else if u, ok := u.(*irtypes.FloatType); ok {
+		switch u.Kind {
+		case irtypes.FloatKindFloat:
+			uSize = 32
+		case irtypes.FloatKindDouble:
+			uSize = 64
+		}
 	}
-
 	return tSize > uSize
 
 }
@@ -239,4 +259,88 @@ func (m *Module) typeOf(expr ast.Expression) irtypes.Type {
 		return toIrType(typ)
 	}
 	panic(fmt.Sprintf("unable to locate type for expression %v", expr))
+}
+
+// pointerToValue returns the LLVM IR pointer value of the given expression.
+func (m *Module) pointerToValue(f *Function, x value.Value) value.Value {
+	if ptrType, ok := x.Type().(*irtypes.PointerType); ok {
+		if _, ok := ptrType.ElemType.(*irtypes.ArrayType); !ok {
+			x = f.currentBlock.NewLoad(ptrType.ElemType, x)
+			return m.pointerToValue(f, x)
+		}
+	}
+	return x
+}
+
+func (m *Module) constantAstToValues(node *ast.ConstDeclItem) (valuestr string, valueInt int64, valueFloat float64, valueBool bool) {
+	// all constants are evaluated at compile time
+	Object := eval.Eval(nil, node.ConstValue, m.env)
+	m.env.Set(node.ConstName.Name, Object)
+
+	switch obj := Object.(type) {
+	case *object.Integer:
+		valueInt = int64(obj.Value)
+		valuestr = strconv.FormatInt(valueInt, 10)
+		valueFloat = float64(valueInt)
+		valueBool = valueInt != 0
+	case *object.Long:
+		valueInt = obj.Value
+		valuestr = strconv.FormatInt(valueInt, 10)
+		valueFloat = float64(valueInt)
+		valueBool = valueInt != 0
+	case *object.Single:
+		valueFloat = float64(obj.Value)
+		valuestr = strconv.FormatFloat(valueFloat, 'f', -1, 32)
+		valueInt = int64(valueFloat)
+		valueBool = valueInt != 0
+	case *object.Currency:
+		valueFloat = obj.Value
+		valuestr = strconv.FormatFloat(valueFloat, 'f', -1, 32)
+		valueInt = int64(valueFloat)
+		valueBool = valueInt != 0
+	case *object.Double:
+		valueFloat = obj.Value
+		valuestr = strconv.FormatFloat(valueFloat, 'f', -1, 64)
+		valueInt = int64(valueFloat)
+		valueBool = valueInt != 0
+	case *object.Boolean:
+		valueBool = obj.Value
+		valuestr = strconv.FormatBool(valueBool)
+		if valueBool {
+			valueInt = 1
+			valueFloat = 1.0
+		} else {
+			valueInt = 0
+			valueFloat = 0.0
+		}
+	case *object.String:
+		valuestr = obj.Value
+		valueInt = 0
+		valueFloat = 0.0
+		valueBool = false
+	case *object.Date:
+		valueFloat = FromDateToFloat(obj.Value)
+		valuestr = obj.String()
+		valueInt = int64(valueFloat)
+		valueBool = valueInt != 0
+	case *object.Error:
+		panic(obj)
+	default:
+		panic(fmt.Sprintf("unknown type %T", obj))
+	}
+	return
+}
+
+// find the declaration scope of the array
+func (m *Module) getDeclarationScope(ident *ast.Identifier) string {
+	var decl ast.Node
+	decl = ident.Decl
+	for decl.GetParent() != nil {
+		decl = decl.GetParent()
+		functOrSub, ok := decl.(ast.FuncOrSub)
+		if ok {
+			return functOrSub.Name().Name
+		}
+	}
+	return globalFunctionName
 }

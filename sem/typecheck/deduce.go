@@ -178,6 +178,8 @@ func isAssignable(x ast.Expression) bool {
 			return false
 		case *types.UserDefined:
 			return true
+		case *types.ByRef:
+			return true
 		default:
 			panic(fmt.Sprintf("support for declaration type %T not yet implemented", typ))
 		}
