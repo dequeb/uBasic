@@ -1,9 +1,0 @@
-'/* Test file for semantic errors. Contains exactly one error. */
-
-
-' default argument must have a default value
-Function q(a As Long, Optional b As Long) As Long  ' caught by lexer
-  q = a + b
-End Function
-q(1)
-
