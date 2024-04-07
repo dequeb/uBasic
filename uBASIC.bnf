@@ -1,0 +1,456 @@
+// A grammar for the µBASIC programming language.
+//
+
+
+
+
+
+// ## Characters
+//
+// An arbitrary ASCII character except null (0x00), new lines (0x0A), carriage
+// return (0x0D) and double quote (0x22).
+_ascii_char
+	: '\x01' - '\x09'
+	| '\x0B' - '\x0C'
+	| '\x0E' - '\x21'
+	| '\x23' - '\x7F'
+;
+
+
+_ascii_letter : 'a' - 'z' | 'A' - 'Z' ;
+_ascii_first_digit : '1' - '9' ;
+_ascii_digit  : '0' - '9' ;
+
+
+// ## Letters and digits
+//
+
+_letter        : _ascii_letter | '_' ;
+_decimal_digit : _ascii_digit ;
+_decimals      : '0' | _ascii_first_digit { _decimal_digit } ;
+
+
+
+// ## Comments
+//
+
+_eol : '\r' | '\n' | '\r\n'  ;
+_line_comment :(('R''e''m') | '\'') { .}  ('\r' | '\n' | '\r\n') ;
+_alternate_line_comment :'\'' { .}  ('\r' | '\n' | '\r\n') ;
+_c_line_comment :'/''/' { .}  ('\r' | '\n' | '\r\n') ;
+_block_comment : '/' '*' { . | '*' } '*' '/' ;
+!comment       : _line_comment | _alternate_line_comment | _c_line_comment | _block_comment ;
+
+eol : _eol | ':' | '\'' {.} _eol ;
+
+// White space, formed from spaces (0x20), horizontal tabs (0x09), new line
+// (line-feed (0x0A) or carriage-return (0x0D)), vertical tabs (0x0B), and form-
+// feeds (0x0C) (§6.4) are ignored.
+!whitespace : ' ' | '\t' | '\v' | '\f' | '\r' | '\n' ;
+
+
+// ## Identifiers
+//
+
+_simpleIdent	:  _ascii_letter { _letter | _decimal_digit } ;
+simpleIdent : _simpleIdent ;
+
+//			;
+// ##  literals
+//
+
+// yyyy/mm/ddThh:mm:ss or yyyy-mm-ddThh:mm:ss or yyyy/mm/dd or yyyy-mm-dd or hh:mm:ss
+long_lit	: _decimals ;
+double_lit	: _decimals '.'  { _decimal_digit } ;
+dateTime_lit: '#' _ascii_digit _ascii_digit {_ascii_digit _ascii_digit } ('/'|'-') _ascii_digit _ascii_digit ('/'|'-') _ascii_digit _ascii_digit 'T'_ascii_digit _ascii_digit ':' _ascii_digit _ascii_digit ':' _ascii_digit _ascii_digit '#' 		
+			| '#' _ascii_digit _ascii_digit {_ascii_digit _ascii_digit } ('/'|'-') _ascii_digit _ascii_digit ('/'|'-') _ascii_digit _ascii_digit '#'					
+			| '#' 'T' _ascii_digit _ascii_digit ':' _ascii_digit _ascii_digit ':' _ascii_digit _ascii_digit '#'				
+			;
+
+// ## Character literals
+//
+
+string_lit 	: '"' { _ascii_char | '"''"' } '"' ;
+
+// # Syntaxic production rules
+//
+
+<< import (
+	"astx"
+	"token"
+) >>
+
+// ----------- File (root) declarations -------------
+
+File
+	: NodeList	                    										<< astx.NewFile($0) >>
+	| empty
+;
+
+NodeList
+	: Decl                         											<< astx.NewNodeList($0) >>
+	| Stmt																	<< astx.NewNodeList($0) >>
+	| NodeList  Decl 	              	    								<< astx.AppendNode($0, $1) >>
+	| NodeList  Stmt    	           	    								<< astx.AppendNode($0, $1) >>
+	;
+
+Decl
+//	: VarDecl 	               												<< $0, nil >>
+	| ConstDecl	           													<< $0, nil >>
+	| EnumDecl		       													<< $0, nil >>
+	| FuncDecl	        	   												<< $0, nil >>
+	| SubDecl	    	 		      										<< $0, nil >>
+	;
+
+// ----------- Constants -------------
+ConstDecl
+	: "Const" ConstDeclList 							eol					<< astx.NewConstDecl($1) >>
+	;
+
+ConstDeclList
+	: ConstDeclItem															<< astx.NewConstDeclList($0) >>
+	| ConstDeclList "," ConstDeclItem										<< astx.AppendConstDeclItem($0, $1) >>
+	;
+
+ConstDeclItem
+	: simpleIdent  "As" BasicType	"=" Expr								<< astx.NewConstDeclItem($0, $1, $2, $3, $4) >>
+	| simpleIdent  "As" simpleIdent	"=" Expr								<< astx.NewConstDeclItem($0, $1, $2, $3, $4) >>
+	;
+
+//# LongList
+//# 	: long_lit 																<< astx.NewLongList($0) >>
+//# 	| empty
+//# 	| LongList "," long_lit													<< astx.AppendLongList($0, $2) >>
+//# 	;
+
+BasicType										
+	: "String" 																<< astx.NewIdent($0) >>
+	| "Long" 																<< astx.NewIdent($0) >>
+	| "Double" 																<< astx.NewIdent($0) >>
+	| "Boolean"																<< astx.NewIdent($0) >>
+	| "DateTime"															<< astx.NewIdent($0) >>
+	| "Variant"																<< astx.NewIdent($0) >>
+	;
+
+// ----------- Enums -------------
+
+EnumDecl
+	: "Enum" simpleIdent  								eol
+		EnumList "End" "Enum" 							eol					<< astx.NewEnumDecl($0, $1, $3, $4, $5) >>
+	;	
+EnumList
+	: EnumItem 																<< astx.NewEnumList($0) >>
+	| EnumList  EnumItem 													<< astx.AppendEnum($0, $1) >>
+	;
+
+EnumItem
+	: simpleIdent										eol					<< astx.NewIdent($0) >>
+	;
+
+// ----------- Variables -------------
+
+
+VarDecl
+	: "Dim" VarDeclList 								eol 				<< astx.NewVarDecl($0, $1) >>
+	;
+
+VarDeclList
+	: VarDeclItem															<< astx.NewVarDeclList($0) >>
+	| VarDeclList "," VarDeclItem											<< astx.AppendVarDecl($0, $2) >>
+	;
+
+VarDeclItem
+	: ScalarDecl 													
+	| InitializedScalarDecl
+	| ArrayDecl 													
+	;
+
+InitializedScalarDecl
+	: simpleIdent  "As" BasicType		"=" Expr						 	<< astx.NewScalarDecl($0, $1,   $2,  $3, $4) >>
+	| simpleIdent  "As" simpleIdent		"=" Expr						 	<< astx.NewScalarDecl($0, $1,   $2,  $3, $4) >>		// for enum type
+	;
+
+ScalarDecl
+	: simpleIdent  "As" BasicType 											<< astx.NewScalarDecl($0,  $1,  $2, nil, nil) >>
+	| simpleIdent  "As" simpleIdent											<< astx.NewScalarDecl($0,  $1,  $2, nil, nil) >>	// for enum type
+	;
+	
+ArrayDecl
+	: simpleIdent "(" ExprList ")" "As"  BasicType							<< astx.NewArrayDecl($0, $1,  $2, $3, $4, $5) >>
+	| simpleIdent "(" ExprList ")" "As"  simpleIdent						<< astx.NewArrayDecl($0, $1,  $2, $3, $4, $5) >>	// for enum type
+	| simpleIdent "(" ")" "As"  BasicType									<< astx.NewArrayDecl($0, $1, nil, $2, $3, $4) >>
+	| simpleIdent "(" ")" "As"  simpleIdent									<< astx.NewArrayDecl($0, $1, nil, $2, $3, $4) >>	// for enum type
+	;
+
+
+// ----------- Functions and Subroutines -------------
+
+
+FuncHeader
+	: "Function" simpleIdent "(" Params ")" "As" BasicType 	eol				<< astx.NewFuncDecl($0, $1, $2, $3, $4, $6) >>
+	| "Function" simpleIdent "(" Params ")" "As" simpleIdent	eol			<< astx.NewFuncDecl($0, $1, $2, $3, $4, $6) >>	// for enum type
+	;
+
+FuncDecl
+	: FuncHeader FuncStmtList "End" "Function" eol							<< astx.SetFuncBody($0, $1, $2, $3) >>
+	;
+
+FuncStmtList	
+	: FuncStmt																<< astx.NewStmtList($0) >>					
+	| FuncStmtList FuncStmt													<< astx.AppendStmt($0, $1) >>
+	;
+
+FuncStmt
+	: Stmt
+	| VarDecl 	               												<< $0, nil >>
+	| ConstDecl	           													<< $0, nil >>
+	| EnumDecl		       													<< $0, nil >>
+	;
+
+SubHeader
+	: "Sub" simpleIdent "(" Params ")" 	eol									<< astx.NewSubDecl($0, $1, $2, $3, $4) >>
+	;
+
+SubDecl
+	: SubHeader SubStmtList   "End" "Sub"	eol								<< astx.SetSubBody($0, $1, $2, $3) >>	
+	;
+
+SubStmtList
+	: SubStmt																<< astx.NewStmtList($0) >>	
+	| SubStmtList SubStmt													<< astx.AppendStmt($0, $1) >>	
+	;
+
+SubStmt
+	: Stmt
+	| VarDecl 	               												<< $0, nil >>
+	| ConstDecl	           													<< $0, nil >>
+	| EnumDecl		       													<< $0, nil >>
+	;
+
+Params
+	: empty
+	| ParamList
+	;
+
+
+ParamList
+	: Param                       											<< astx.NewParamList($0) >>
+	| ParamList "," Param               									<< astx.AppendParam($0, $1, $2) >>
+	;
+
+Param
+	: ScalarDecl 															<< astx.NewParamItem(nil, nil, nil, $0) >>
+	| ArrayDecl 															<< astx.NewParamItem(nil, nil, nil, $0) >>
+	| "ByRef" Param                  										<< astx.NewParamItem(nil,  $0, nil, $1) >>
+	| "Optional" "ByRef" DefaultParam         								<< astx.NewParamItem($0,   $1, nil, $2) >>
+	| "Optional" DefaultParam     		    								<< astx.NewParamItem($0,  nil, nil, $1) >>
+	| "ParamArray" Param               										<< astx.NewParamItem(nil, nil, $0,  $1) >>
+	;	
+DefaultParam
+	: InitializedScalarDecl													<< astx.NewParamItem(nil, nil, nil, $0) >>
+	;
+
+// ----------- Statements -------------
+
+StmtList
+	: Stmt																	<< astx.NewStmtList($0) >>
+	| StmtList Stmt															<< astx.AppendStmt($0, $1) >>
+	;
+
+Stmt
+	: "If" Expr "Then"  eol StmtList "End" "If" 			eol 			<< astx.NewIfStmt($0, $1, $2, $4, nil, nil, $5, $6) >>
+	| "If" Expr "Then"  eol StmtList 
+	  "Else" eol StmtList "End" "If"						eol 			<< astx.NewIfStmt($0, $1, $2, $4, $5, $7, $8, $9) >>
+	| "For" ForNextExpr eol ForStmtList "Next"		 		eol 			<< astx.NewForStmt($0, $1, $3, $4, nil) >>
+	| "For" ForEachExpr eol ForStmtList "Next" 				eol  			<< astx.NewForStmt($0, $1, $3, $4, nil) >>
+	| "For" ForNextExpr eol ForStmtList "Next" simpleIdent	eol				<< astx.NewForStmt($0, $1, $3, $4, $5) >>
+	| "Do" "While" Expr eol DoStmtList "Loop"				eol 			<< astx.NewWhileStmt($0, $1, $2, $4, $5) >>
+	| "Do" "Until" Expr eol DoStmtList "Loop"				eol 			<< astx.NewUntilStmt($0, $1, $2, $4, $5) >>
+	| "Do"  eol DoStmtList "Loop" "While" Expr			 	eol 			<< astx.NewDoWhileStmt($0, $2, $3, $4, $5) >>
+	| "Do"  eol DoStmtList "Loop" "Until" Expr		 		eol 			<< astx.NewDoUntilStmt($0, $2, $3, $4, $5) >>
+//	| "with" simpleIdent eol StmtList "End" "With"			eol 			<< astx.NewWithStmt($0, $1, $3, $4, $5) >>
+//	| "Select" "Case" Expr eol StmtList "End" "Select"		eol 			<< astx.NewSelectStmt($0, $1, $2, $4, $5, $6) >>
+//	| "Case" Expr 											eol				<< astx.NewCaseStmt($0, $1, nil) >>
+	| "ReDim" "Preserve" ArrayOrCallExpr					eol				<< astx.NewSpecialStmt($0, $1,  $2) >>	
+	| "ReDim" ArrayOrCallExpr								eol				<< astx.NewSpecialStmt($0, nil, $1) >>	
+	| "Erase" ExprList										eol				<< astx.NewSpecialStmt($0, nil, $1) >>	
+	| "MsgBox" ExprList										eol				<< astx.NewSpecialStmt($0, nil, $1) >>	
+	| "Debug.Print" ExprList								eol				<< astx.NewSpecialStmt($0, nil, $1) >>	// same as Print
+	| "Print" ExprList										eol				<< astx.NewSpecialStmt($0, nil, $1) >>	
+	| "Exit" "For" 											eol				<< astx.NewExitStmt($0, $1) >>
+	| "Exit" "Do" 											eol				<< astx.NewExitStmt($0, $1) >>
+	| "Exit" "Function" 									eol				<< astx.NewExitStmt($0, $1) >>
+	| "Exit" "Sub" 											eol				<< astx.NewExitStmt($0, $1) >>
+	| Expr 													eol				<< astx.NewExprStmt($0) >>
+	| 														eol				<< astx.NewEmptyStmt($0) >>	
+	| JumpStmt												eol				<< astx.NewJumpStmt($0) >>
+	| Jumplabel
+	| error		
+	;
+
+JumpStmt
+	| SimpleJumpStmt
+	: "on error" SimpleJumpStmt
+	;
+SimpleJumpStmt
+	: "goto" simpleIdent
+	| "resume" "next"
+	| "resume" simpleIdent
+	;
+
+Jumplabel
+	: simpleIdent ":"
+	;
+
+ForStmtList
+	: Stmt																	<< astx.NewStmtList($0) >>
+	| ForStmtList Stmt														<< astx.AppendStmt($0, $1) >>
+	;
+
+DoStmtList
+	: Stmt																	<< astx.NewStmtList($0) >>
+	| DoStmtList Stmt														<< astx.AppendStmt($0, $1) >>
+	;
+
+ForNextExpr
+	: simpleIdent  "=" Expr "To" Expr	 									<< astx.NewForNextExpr($0, $1, $2, $3, $4, nil, nil) >>
+//	| numericIdent "=" Expr "To" Expr	 									<< astx.NewForNextExpr($0, $1, $2, $3, $4, nil, nil) >>
+//	| numericIdent "=" Expr "To" Expr	"Step" Expr	 						<< astx.NewForNextExpr($0, $1, $2, $3, $4, $5, $6) >>
+	| simpleIdent  "=" Expr "To" Expr	"Step" Expr	 						<< astx.NewForNextExpr($0, $1, $2, $3, $4, $5, $6) >>
+	;
+
+ForEachExpr 
+	: "Each" simpleIdent "In" Expr											<< astx.NewForEachExpr($0, $1, $2, $3) >>
+//	| "Each" typedIdent "In" Expr	 	 									<< astx.NewForEachExpr($0, $1, $2, $3) >>
+	;
+
+
+// ----------- Expressions -------------
+
+Expr
+	: Expr2R
+	;
+
+// Right-associative binary expressions with precedence 2.
+//
+//    2R: =
+Expr2R
+	: Expr3L
+	| PrimaryExpr "=" Expr3L       											<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+// Left-associative binary expressions with precedence 3.
+//
+//    5L: Or
+Expr3L
+	: Expr5L
+	| Expr3L "Or" Expr5L        											<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+
+
+// Left-associative binary expressions with precedence 5.
+//
+//    5L: And 
+Expr5L
+	: Expr9L
+	| Expr5L "And" Expr9L         											<< astx.NewBinaryExpr($0, $1, $2) >>				
+	;
+
+// Left-associative binary expressions with precedence 9.
+//
+//    9L: == <>
+Expr9L
+	: Expr10L
+	| Expr9L "=" Expr10L 	             									<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr9L "<>" Expr10L               									<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+
+// Left-associative binary expressions with precedence 10.
+//
+//    10L: < > <= >=
+Expr10L
+	: Expr12L
+	| Expr10L "<" Expr12L               									<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr10L ">" Expr12L               									<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr10L "<=" Expr12L              									<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr10L ">=" Expr12L              									<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+
+// Left-associative binary expressions with precedence 12.
+//
+//    12L: + - &
+Expr12L
+	: Expr13L
+	| Expr12L "+" Expr13L             			  							<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr12L "&" Expr13L             			  							<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr12L "-" Expr13L               									<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+
+// Left-associative binary expressions with precedence 13.
+//
+//    13L: * / | %
+Expr13L
+	: Expr14L
+	| Expr13L "*" Expr14L          									
+	| Expr13L "Mod" Expr14L           										<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr13L "Div" Expr14L      	   										<< astx.NewBinaryExpr($0, $1, $2) >>
+	| Expr13L "/" Expr14L            										<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+
+// Left-associative binary expressions with precedence 14.
+//
+//    14L: Exp
+Expr14L
+	: Expr15
+	| Expr14L "Exp" Expr15                									<< astx.NewBinaryExpr($0, $1, $2) >>
+	;
+
+
+// Unary expressions with precedence 15.
+//
+//    15: - NOT
+Expr15
+	: Expr16
+	| "-" Expr16   															<< astx.NewUnaryExpr($0, $1) >>
+	| "Not" Expr16                   										<< astx.NewUnaryExpr($0, $1) >>
+	;
+
+// Expressions with precedence 16.
+Expr16
+	: PrimaryExpr
+	| long_lit 			                          							<< astx.NewBasicLit($0, token.LongLit) >>
+	| double_lit															<< astx.NewBasicLit($0, token.DoubleLit) >>
+	| string_lit															<< astx.NewBasicLit($0, token.StringLit) >>
+	| dateTime_lit															<< astx.NewBasicLit($0, token.DateTimeLit) >>
+	| "True"																<< astx.NewBasicLit($0, token.BooleanLit) >>
+	| "False"																<< astx.NewBasicLit($0, token.BooleanLit) >>
+	| "Nothing"																<< astx.NewBasicLit($0, token.NothingLit) >>
+	| ParenExpr
+	;
+
+PrimaryExpr
+	: simpleIdent															<< astx.NewIdent($0) >>					
+ 	| ArrayOrCallExpr
+	| PrimaryExpr "." simpleIdent											<< astx.NewSelectorExpr($0, $1, $2) >>
+	| PrimaryExpr "." ArrayOrCallExpr										<< astx.NewSelectorExpr($0, $1, $2) >>
+	;
+
+ArrayOrCallExpr
+	: simpleIdent "(" Args ")"         										<< astx.NewCallOrIndexExpr($0, $1, $2, $3) >>
+//	| typedIdent  "(" Args ")"         										<< astx.NewCallOrIndexExpr($0, $1, $2, $3) >>
+	;
+
+Args
+	: empty
+	| ExprList														
+	;
+
+ExprList	
+	: Expr                          		   								<< astx.NewExprList($0) >>
+	| ExprList "," Expr  			               							<< astx.AppendExpr($0, $2) >>
+	;
+
+ParenExpr
+	: "(" Expr ")"                      									<< astx.NewParenExpr($0, $1, $2) >>
+	;
+	
+	

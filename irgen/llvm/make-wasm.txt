@@ -1,0 +1,5 @@
+# Compilez le fichier LLVM en un fichier WASM
+llc -march=wasm32 -filetype=obj helloworld.ll -o helloworld.o
+
+# Liez le fichier WASM en un exécutable WASM
+wasm-ld --no-entry --export-all -o helloworld.wasm helloworld.o

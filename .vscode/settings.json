@@ -1,0 +1,11 @@
+{
+    "files.readonlyInclude": {
+        "/Users/michelrondeau/Documents/dev/go/pkg/mod/github.com/llir/llvm@v0.3.6": true
+    },
+    "files.associations": {
+        "*.yrf": "json",
+        "*.rpx": "xml",
+        "*.stl": "json",
+        "stdio.h": "c"
+    }
+}
