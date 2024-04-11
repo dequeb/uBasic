@@ -235,6 +235,21 @@ func (m *Module) valueFromIdent(f *Function, ident *ast.Identifier) value.Value 
 	panic(fmt.Sprintf("unable to locate value associated with identifier %q (declared at source code position %d)", ident, pos))
 }
 
+// valueFromIdent returns the LLVM IR value associated with the given
+// identifier. Only search for global values if f is nil.
+func (m *Module) arrayDimensionValueFromIdent(f *Function, ident *ast.Identifier, dimension int) value.Value {
+	pos := ident.Decl.Name().Tok.Position.Absolute + dimension + 1 // +1 to avoid conflict with the array itself
+	if v, ok := m.idents[pos]; ok {
+		return v
+	}
+	if f != nil {
+		if v, ok := f.idents[pos]; ok {
+			return v
+		}
+	}
+	panic(fmt.Sprintf("unable to locate value associated with identifier %q (declared at source code position %d)", ident, pos))
+}
+
 // setIdentValue maps the given global identifier to the associated value.
 func (m *Module) setIdentValue(ident *ast.Identifier, v value.Value) {
 	pos := ident.Decl.Name().Tok.Position.Absolute
@@ -247,6 +262,15 @@ func (m *Module) setIdentValue(ident *ast.Identifier, v value.Value) {
 // setIdentValue maps the given local identifier to the associated value.
 func (f *Function) setIdentValue(ident *ast.Identifier, v value.Value) {
 	pos := ident.Decl.Name().Tok.Position.Absolute
+	if old, ok := f.idents[pos]; ok {
+		panic(fmt.Sprintf("unable to map identifier %q to value %v; already mapped to value %v", ident, v, old))
+	}
+	f.idents[pos] = v
+}
+
+// setIdentValue maps the given global identifier to the associated value.
+func (f *Function) setArrayDimensionIdentValue(ident *ast.Identifier, dimension int, v value.Value) {
+	pos := ident.Decl.Name().Tok.Position.Absolute + dimension + 1 // +1 to avoid conflict with the array itself
 	if old, ok := f.idents[pos]; ok {
 		panic(fmt.Sprintf("unable to map identifier %q to value %v; already mapped to value %v", ident, v, old))
 	}

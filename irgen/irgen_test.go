@@ -613,5 +613,3 @@ func TestFloatGEN(*testing.T) {
 	entry.NewRet(constant.NewInt(types.I32, 0))
 	fmt.Println(m)
 }
-
-func TestStructure(*testing.T) {}

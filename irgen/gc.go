@@ -39,6 +39,7 @@ func (m *Module) genGC() {
 	gcMallocParam2 := ir.NewParam("size", ptrType)
 	gcMallocParam2.Attrs = append(gcMallocParam2.Attrs, enum.ParamAttrNoUndef)
 	gcMalloc := m.NewFunc("gc_malloc", ptrType, gcMallocParam1, gcMallocParam2)
+	// to avoid unused variable error
 	_ = gcStart
 	_ = gcStop
 	_ = gcMalloc

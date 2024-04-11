@@ -379,12 +379,14 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 		result := eval.Eval(nil, dimensions[i], env)
 		var dimension int64
 		switch result.(type) {
+		case *object.Integer:
+			dimension = int64(result.GetValue().(int32))
 		case *object.Long:
 			dimension = result.GetValue().(int64)
-			size *= dimension
 		default:
 			panic("unknown expression: " + result.String())
 		}
+		size *= dimension
 
 		// allocate length of array constant
 		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, i)
@@ -393,7 +395,6 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 
 	}
 
-	// Create a new global variable of type [15]i8 and name it "str".
 	array0 := constant.NewArray(&irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
 	init := constant.NewZeroInitializer(array0.Typ)
 	global := m.NewGlobalDef(ident.Name, init)
@@ -496,7 +497,7 @@ func (m *Module) localArrayDecl(f *Function, n *ast.ArrayDecl) {
 	// Output:
 	//    %a = alloca [3 x i32] zeroinitializer
 	ident := n.Name()
-	dbg.Printf("create local array: %v", n)
+	dbg.Printf("create global array: %v", n)
 	typ0, err := n.Type()
 	if err != nil {
 		panic(fmt.Sprintf("unable to create type; %v", err))
@@ -504,53 +505,51 @@ func (m *Module) localArrayDecl(f *Function, n *ast.ArrayDecl) {
 	// get array type
 	typ1, _ := typ0.(*uBasictypes.Array)
 	arrayTyp := toIrType(typ1.Type)
-
 	dimensions := n.VarType.Dimensions
 	if len(dimensions) == 0 {
 		typ := irtypes.NewPointer(arrayTyp)
-		array := f.currentBlock.NewAlloca(typ)
-		f.emitLocal(ident, array)
+		local := f.currentBlock.NewAlloca(typ)
+		f.setIdentValue(ident, local)
 
 		// allocate length of array variable
 		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, 0)
-		length := f.currentBlock.NewAlloca(irtypes.I64)
-		f.currentBlock.NewStore(constant.NewInt(irtypes.I64, 0), length)
-		length.SetName(constName)
-		f.emitLocal(ident, length)
+		arraySize := f.currentBlock.NewAlloca(irtypes.I32)
+		arraySize.SetName(constName)
+		f.setArrayDimensionIdentValue(ident, 0, arraySize)
 		return
 	}
+
 	// for multi-dimensional arrays, create an array of single-dimension
 	// we will multiply the dimensions to get the total size of the array
 
 	// calculate the total size of the array
 	env := object.NewEnvironment()
 	size := int64(1)
-
 	for i := len(dimensions) - 1; i >= 0; i-- {
 		result := eval.Eval(nil, dimensions[i], env)
 		var dimension int64
 		switch result.(type) {
+		case *object.Integer:
+			dimension = int64(result.GetValue().(int32))
 		case *object.Long:
 			dimension = result.GetValue().(int64)
-			size *= dimension
 		default:
 			panic("unknown expression: " + result.String())
 		}
+		size *= dimension
 
+		// allocate length of array constant
+		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, i)
+		cnst := f.currentBlock.NewAlloca(irtypes.I32)
+		cnst.SetName(constName)
+		f.setArrayDimensionIdentValue(ident, i, cnst)
+		f.currentBlock.NewStore(constant.NewInt(irtypes.I32, dimension), cnst)
 	}
 
-	structureElements := make([]irtypes.Type, 0)
-	structureElements = append(structureElements, &irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
-	for i := len(dimensions) - 1; i >= 0; i-- {
-		structureElements = append(structureElements, irtypes.I64)
-	}
-	// array structure
-	arrayStructure := irtypes.NewStruct(structureElements...)
-	array1 := f.currentBlock.NewAlloca(arrayStructure)
-	f.emitLocal(ident, array1)
-
-	gep := f.currentBlock.NewGetElementPtr(arrayTyp, array1, constant.NewInt(irtypes.I32, 0))
-	f.initArray(gep, size, arrayTyp)
+	array0 := constant.NewArray(&irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
+	local := f.currentBlock.NewAlloca(array0.Typ)
+	f.setIdentValue(ident, local)
+	f.initArray(local, size, arrayTyp)
 
 }
 
