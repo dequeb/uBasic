@@ -269,12 +269,22 @@ func (f *Function) setIdentValue(ident *ast.Identifier, v value.Value) {
 }
 
 // setIdentValue maps the given global identifier to the associated value.
-func (f *Function) setArrayDimensionIdentValue(ident *ast.Identifier, dimension int, v value.Value) {
-	pos := ident.Decl.Name().Tok.Position.Absolute + dimension + 1 // +1 to avoid conflict with the array itself
-	if old, ok := f.idents[pos]; ok {
-		panic(fmt.Sprintf("unable to map identifier %q to value %v; already mapped to value %v", ident, v, old))
+func (m *Module) setArrayDimensionIdentValue(f *Function, ident *ast.Identifier, dimension int, v value.Value) {
+	if v == nil {
+		panic(fmt.Sprintf("unable to map identifier %q to nil value", ident))
 	}
-	f.idents[pos] = v
+	pos := ident.Decl.Name().Tok.Position.Absolute + dimension + 1 // +1 to avoid conflict with the array itself
+	if f != nil {
+		if old, ok := f.idents[pos]; ok {
+			panic(fmt.Sprintf("unable to map identifier %q to value %v; already mapped to value %v", ident, v, old))
+		}
+		f.idents[pos] = v
+	} else {
+		if old, ok := m.idents[pos]; ok {
+			panic(fmt.Sprintf("unable to map identifier %q to value %v; already mapped to value %v", ident, v, old))
+		}
+		m.idents[pos] = v
+	}
 }
 
 // typeOf returns the LLVM IR type of the given expression.

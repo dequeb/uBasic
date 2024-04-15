@@ -707,8 +707,8 @@ func (a *Array) converIndex(index []Object, value Object) ([]uint32, Object) {
 			if v.(*Long).Value < 0 {
 				return indexes, NewError(v.Position(), "index must be positive")
 			}
-			if v.(*Long).Value > int64(a.Dimensions[i]) {
-				return indexes, NewError(a.Pos, "index out of range")
+			if v.(*Long).Value >= int64(a.Dimensions[i]) {
+				return indexes, NewError(a.Pos, "index out of bounds")
 			}
 
 			indexes[i] = uint32(v.(*Long).Value)
@@ -718,7 +718,7 @@ func (a *Array) converIndex(index []Object, value Object) ([]uint32, Object) {
 			return indexes, NewError(v.Position(), "index must be positive")
 		}
 		if uint32(v.(*Integer).Value) >= a.Dimensions[i] {
-			return indexes, NewError(a.Pos, "index out of range")
+			return indexes, NewError(a.Pos, "index out of bounds")
 		}
 
 		indexes[i] = uint32(v.(*Integer).Value)

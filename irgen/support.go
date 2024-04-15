@@ -435,7 +435,7 @@ func (m *Module) checkArrayBounds(f *Function, index value.Value, length value.V
 	end2 := f.NewBlock("")
 
 	// inconming block:
-	cond := f.currentBlock.NewICmp(enum.IPredULT, index, zero)
+	cond := f.currentBlock.NewICmp(enum.IPredUGE, index, length)
 	f.currentBlock.NewCondBr(cond, trueBranch1.Block, end1.Block)
 
 	// trueBranch1:
@@ -448,7 +448,7 @@ func (m *Module) checkArrayBounds(f *Function, index value.Value, length value.V
 
 	// end1:
 	f.changeBlock(end1)
-	cond = f.currentBlock.NewICmp(enum.IPredUGE, index, length)
+	cond = f.currentBlock.NewICmp(enum.IPredULT, index, zero)
 	f.currentBlock.NewCondBr(cond, trueBranch1.Block, end2.Block)
 
 	// end2:
@@ -462,13 +462,13 @@ func (f *Function) initArray(array value.Value, size int64, elementType irtypes.
 	loopEnd := f.NewBlock("")
 
 	// inconming block:
-	index := f.currentBlock.NewAlloca(irtypes.I32)
-	f.currentBlock.NewStore(constZero(irtypes.I32), index)
+	index := f.currentBlock.NewAlloca(irtypes.I64)
+	f.currentBlock.NewStore(constZero(irtypes.I64), index)
 	f.currentBlock.NewBr(loopCond.Block)
 
 	// loopCond:
 	f.changeBlock(loopCond)
-	index_val := f.currentBlock.NewLoad(irtypes.I32, index)
+	index_val := f.currentBlock.NewLoad(irtypes.I64, index)
 	cond := f.currentBlock.NewICmp(enum.IPredULT, index_val, constant.NewInt(irtypes.I32, size))
 	f.currentBlock.NewCondBr(cond, loopBody.Block, loopEnd.Block)
 
@@ -477,7 +477,7 @@ func (f *Function) initArray(array value.Value, size int64, elementType irtypes.
 	zero := constZero(elementType)
 	gep := f.currentBlock.NewGetElementPtr(elementType, array, index_val)
 	f.currentBlock.NewStore(zero, gep)
-	tmp := f.currentBlock.NewLoad(irtypes.I32, index)
+	tmp := f.currentBlock.NewLoad(irtypes.I64, index)
 	tmp1 := f.currentBlock.NewAdd(tmp, constant.NewInt(irtypes.I32, 1))
 	f.currentBlock.NewStore(tmp1, index)
 	f.currentBlock.NewBr(loopCond.Block)

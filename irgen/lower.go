@@ -365,7 +365,9 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 
 		// allocate length of array variable
 		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, 0)
-		m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, 0))
+		arraySize := m.NewGlobalDef(constName, constZero(irtypes.I64))
+		arraySize.SetName(constName)
+		m.setArrayDimensionIdentValue(nil, ident, 0, arraySize)
 		return
 	}
 
@@ -390,9 +392,10 @@ func (m *Module) globalArrayDecl(n *ast.ArrayDecl) {
 
 		// allocate length of array constant
 		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, i)
-		cnst := m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, dimension))
-		cnst.Immutable = true
-
+		arraySize := m.NewGlobalDef(constName, constant.NewInt(irtypes.I64, dimension))
+		arraySize.SetName(constName)
+		arraySize.Immutable = true
+		m.setArrayDimensionIdentValue(nil, ident, i, arraySize)
 	}
 
 	array0 := constant.NewArray(&irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
@@ -513,9 +516,9 @@ func (m *Module) localArrayDecl(f *Function, n *ast.ArrayDecl) {
 
 		// allocate length of array variable
 		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, 0)
-		arraySize := f.currentBlock.NewAlloca(irtypes.I32)
+		arraySize := f.currentBlock.NewAlloca(irtypes.I64)
 		arraySize.SetName(constName)
-		f.setArrayDimensionIdentValue(ident, 0, arraySize)
+		m.setArrayDimensionIdentValue(f, ident, 0, arraySize)
 		return
 	}
 
@@ -540,17 +543,16 @@ func (m *Module) localArrayDecl(f *Function, n *ast.ArrayDecl) {
 
 		// allocate length of array constant
 		constName := fmt.Sprintf(ArrayVarSizeName, ident.Name, i)
-		cnst := f.currentBlock.NewAlloca(irtypes.I32)
+		cnst := f.currentBlock.NewAlloca(irtypes.I64)
 		cnst.SetName(constName)
-		f.setArrayDimensionIdentValue(ident, i, cnst)
-		f.currentBlock.NewStore(constant.NewInt(irtypes.I32, dimension), cnst)
+		m.setArrayDimensionIdentValue(f, ident, i, cnst)
+		f.currentBlock.NewStore(constant.NewInt(irtypes.I64, dimension), cnst)
 	}
 
 	array0 := constant.NewArray(&irtypes.ArrayType{Len: uint64(size), ElemType: arrayTyp})
 	local := f.currentBlock.NewAlloca(array0.Typ)
 	f.setIdentValue(ident, local)
 	f.initArray(local, size, arrayTyp)
-
 }
 
 // constDecl lowers the given constant declaration to LLVM IR, emitting code to
@@ -1565,7 +1567,6 @@ func (m *Module) indexExprDef(f *Function, n *ast.CallOrIndexExpr, v value.Value
 			panic("error evaluating array dimensions")
 		}
 	}
-	// find the declaration scope of the array
 	scope := m.getDeclarationScope(ident)
 
 	indices := make([]value.Value, len(n.Args))
@@ -1575,9 +1576,12 @@ func (m *Module) indexExprDef(f *Function, n *ast.CallOrIndexExpr, v value.Value
 		for i, index := range n.Args {
 			indices[i] = m.expr(f, index)
 			// load array dimension
-			dimVarName := fmt.Sprintf(ArrayVarSizeName, scope, n.Identifier.Name, i)
-			dimVar := m.LookupGlobal(dimVarName)
-			dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
+			dimVar := m.arrayDimensionValueFromIdent(f, ident, i)
+			var dim value.Value
+			if scope == "" {
+				dim = m.LookupGlobal(dimVar.(*ir.Global).GlobalIdent.GlobalName)
+			}
+			dim = f.currentBlock.NewLoad(irtypes.I64, dimVar)
 			// compare index with dimension
 			m.checkArrayBounds(f, indices[i], dim)
 
@@ -1725,8 +1729,14 @@ func (m *Module) indexExpr(f *Function, n *ast.CallOrIndexExpr) value.Value {
 			for i, index := range n.Args {
 				indices[i] = m.expr(f, index)
 				// load array dimension
-				dimVarName := fmt.Sprintf(ArrayVarSizeName, scope, n.Identifier.Name, i)
-				dimVar := m.LookupGlobal(dimVarName)
+				dimVarName := fmt.Sprintf(ArrayVarSizeName, n.Identifier.Name, i)
+				var dimVar value.Value
+
+				if scope == "" {
+					dimVar = m.LookupGlobal(dimVarName)
+				} else {
+					dimVar = m.arrayDimensionValueFromIdent(f, n.Identifier, i)
+				}
 				dim := f.currentBlock.NewLoad(irtypes.I64, dimVar)
 				// compare index with dimension
 				m.checkArrayBounds(f, indices[i], dim)
